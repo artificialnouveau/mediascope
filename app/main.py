@@ -6,6 +6,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from database import get_db, init_db
 from downloader import download_video, save_notes_file, MEDIA_DIR
+from transcriber import transcribe_video
 
 app = FastAPI()
 
@@ -32,6 +33,9 @@ class EntryCreate(BaseModel):
 
 class NoteUpdate(BaseModel):
     notes: str
+
+class ReorderBody(BaseModel):
+    chapter_ids: list[int]
 
 
 # --- Media serving ---
@@ -95,7 +99,7 @@ def delete_notebook(notebook_id: int):
 def list_chapters(notebook_id: int):
     db = get_db()
     rows = db.execute(
-        "SELECT * FROM chapters WHERE notebook_id = ? ORDER BY created_at",
+        "SELECT * FROM chapters WHERE notebook_id = ? ORDER BY sort_order, created_at",
         (notebook_id,),
     ).fetchall()
     db.close()
@@ -105,14 +109,29 @@ def list_chapters(notebook_id: int):
 @app.post("/api/chapters")
 def create_chapter(data: ChapterCreate):
     db = get_db()
+    # Set sort_order to max + 1 so new chapters appear at the end
+    max_order = db.execute(
+        "SELECT COALESCE(MAX(sort_order), -1) FROM chapters WHERE notebook_id = ?",
+        (data.notebook_id,),
+    ).fetchone()[0]
     cur = db.execute(
-        "INSERT INTO chapters (notebook_id, name) VALUES (?, ?)",
-        (data.notebook_id, data.name),
+        "INSERT INTO chapters (notebook_id, name, sort_order) VALUES (?, ?, ?)",
+        (data.notebook_id, data.name, max_order + 1),
     )
     db.commit()
     row = db.execute("SELECT * FROM chapters WHERE id = ?", (cur.lastrowid,)).fetchone()
     db.close()
     return dict(row)
+
+
+@app.put("/api/chapters/reorder")
+def reorder_chapters(data: ReorderBody):
+    db = get_db()
+    for i, chapter_id in enumerate(data.chapter_ids):
+        db.execute("UPDATE chapters SET sort_order = ? WHERE id = ?", (i, chapter_id))
+    db.commit()
+    db.close()
+    return {"ok": True}
 
 
 @app.put("/api/chapters/{chapter_id}")
@@ -216,6 +235,39 @@ def update_notes(entry_id: int, data: NoteUpdate):
     # Also save notes as .txt file alongside the video
     save_notes_file(row["video_path"], data.notes)
     return dict(row)
+
+
+@app.post("/api/entries/{entry_id}/transcribe")
+def transcribe_entry(entry_id: int):
+    db = get_db()
+    row = db.execute("SELECT * FROM entries WHERE id = ?", (entry_id,)).fetchone()
+    db.close()
+    if not row:
+        raise HTTPException(404, "Entry not found")
+    if not row["video_path"]:
+        raise HTTPException(400, "No video to transcribe")
+
+    # Skip if already transcribed
+    if row["notes"] and "--- Transcription ---" in row["notes"]:
+        return dict(row)
+
+    try:
+        transcript = transcribe_video(row["video_path"])
+    except Exception as e:
+        raise HTTPException(500, f"Transcription failed: {e}")
+
+    # Append transcript to existing notes
+    existing = row["notes"] or ""
+    separator = "<p><br></p><p><strong>--- Transcription ---</strong></p>" if existing.strip() else "<p><strong>--- Transcription ---</strong></p>"
+    updated_notes = existing + separator + "<p>" + transcript + "</p>"
+
+    db = get_db()
+    db.execute("UPDATE entries SET notes = ? WHERE id = ?", (updated_notes, entry_id))
+    db.commit()
+    entry = db.execute("SELECT * FROM entries WHERE id = ?", (entry_id,)).fetchone()
+    db.close()
+    save_notes_file(entry["video_path"], updated_notes)
+    return dict(entry)
 
 
 @app.delete("/api/entries/{entry_id}")

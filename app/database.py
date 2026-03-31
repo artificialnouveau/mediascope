@@ -25,6 +25,7 @@ def init_db():
             notebook_id INTEGER NOT NULL DEFAULT 1,
             name TEXT NOT NULL,
             notes TEXT DEFAULT '',
+            sort_order INTEGER NOT NULL DEFAULT 0,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (notebook_id) REFERENCES notebooks(id) ON DELETE CASCADE
         );
@@ -49,6 +50,12 @@ def init_db():
         conn.execute("ALTER TABLE chapters ADD COLUMN notes TEXT DEFAULT ''")
     if "notebook_id" not in columns:
         conn.execute("ALTER TABLE chapters ADD COLUMN notebook_id INTEGER NOT NULL DEFAULT 1")
+    if "sort_order" not in columns:
+        conn.execute("ALTER TABLE chapters ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0")
+        # Set initial sort_order based on existing created_at order
+        rows = conn.execute("SELECT id FROM chapters ORDER BY created_at").fetchall()
+        for i, row in enumerate(rows):
+            conn.execute("UPDATE chapters SET sort_order = ? WHERE id = ?", (i, row[0]))
 
     # Ensure at least one notebook exists
     row = conn.execute("SELECT COUNT(*) as cnt FROM notebooks").fetchone()

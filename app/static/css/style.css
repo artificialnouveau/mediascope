@@ -93,6 +93,31 @@ body {
 
 #chapter-list li .chapter-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+.chapter-order-btns {
+    display: none;
+    flex-direction: column;
+    gap: 0;
+    margin-right: 6px;
+}
+
+#chapter-list li:hover .chapter-order-btns { display: flex; }
+
+.chapter-order-btns button {
+    background: none;
+    border: none;
+    color: #6c7086;
+    cursor: pointer;
+    font-size: 9px;
+    padding: 0 2px;
+    line-height: 1;
+}
+
+.chapter-order-btns button:hover:not(:disabled) { color: #cdd6f4; }
+.chapter-order-btns button:disabled { opacity: 0.3; cursor: default; }
+
+#chapter-list li.dragging { opacity: 0.4; }
+#chapter-list li.drag-over { border-top: 2px solid #cba6f7; }
+
 #chapter-list li .chapter-actions {
     display: none;
     gap: 6px;

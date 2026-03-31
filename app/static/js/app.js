@@ -84,23 +84,69 @@ async function loadChapters() {
     const chapters = await res.json();
     const list = document.getElementById("chapter-list");
     list.innerHTML = "";
-    chapters.forEach(ch => {
+    chapters.forEach((ch, idx) => {
         const li = document.createElement("li");
         li.dataset.id = ch.id;
+        li.draggable = true;
         if (ch.id === currentChapterId) li.classList.add("active");
         li.innerHTML = `
+            <span class="chapter-order-btns">
+                <button onclick="moveChapter(${idx}, -1, event)" title="Move up" ${idx === 0 ? 'disabled' : ''}>▲</button>
+                <button onclick="moveChapter(${idx}, 1, event)" title="Move down" ${idx === chapters.length - 1 ? 'disabled' : ''}>▼</button>
+            </span>
             <span class="chapter-name">${escapeHtml(ch.name)}</span>
             <span class="chapter-actions">
                 <button onclick="renameChapter(${ch.id}, event)" title="Rename">✏</button>
                 <button onclick="deleteChapter(${ch.id}, event)" title="Delete">✕</button>
             </span>
         `;
+        // Drag and drop
+        li.addEventListener("dragstart", (e) => {
+            e.dataTransfer.setData("text/plain", idx.toString());
+            li.classList.add("dragging");
+        });
+        li.addEventListener("dragend", () => li.classList.remove("dragging"));
+        li.addEventListener("dragover", (e) => { e.preventDefault(); li.classList.add("drag-over"); });
+        li.addEventListener("dragleave", () => li.classList.remove("drag-over"));
+        li.addEventListener("drop", async (e) => {
+            e.preventDefault();
+            li.classList.remove("drag-over");
+            const fromIdx = parseInt(e.dataTransfer.getData("text/plain"));
+            const toIdx = idx;
+            if (fromIdx !== toIdx) {
+                const ids = chapters.map(c => c.id);
+                const [moved] = ids.splice(fromIdx, 1);
+                ids.splice(toIdx, 0, moved);
+                await saveChapterOrder(ids);
+            }
+        });
         li.addEventListener("click", (e) => {
             if (e.target.tagName === "BUTTON") return;
             selectChapter(ch.id, ch.name);
         });
         list.appendChild(li);
     });
+}
+
+async function moveChapter(fromIdx, direction, event) {
+    event.stopPropagation();
+    const list = document.getElementById("chapter-list");
+    const items = Array.from(list.children);
+    const ids = items.map(li => parseInt(li.dataset.id));
+    const toIdx = fromIdx + direction;
+    if (toIdx < 0 || toIdx >= ids.length) return;
+    const [moved] = ids.splice(fromIdx, 1);
+    ids.splice(toIdx, 0, moved);
+    await saveChapterOrder(ids);
+}
+
+async function saveChapterOrder(chapterIds) {
+    await fetch(`${API}/api/chapters/reorder`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chapter_ids: chapterIds }),
+    });
+    await loadChapters();
 }
 
 async function addChapter() {
@@ -239,6 +285,7 @@ function createEntryCard(entry) {
                 <div id="${editorId}">${entry.notes || ""}</div>
                 <div class="entry-actions">
                     <button class="btn btn-primary" onclick="saveNotes(${entry.id})">Save Notes</button>
+                    <button class="btn btn-secondary" id="transcribe-btn-${entry.id}" onclick="transcribeEntry(${entry.id})">Transcribe</button>
                     <button class="btn btn-danger" onclick="deleteEntry(${entry.id})">Delete</button>
                 </div>
             </div>
@@ -263,6 +310,72 @@ function createEntryCard(entry) {
     });
 
     return card;
+}
+
+async function transcribeEntry(entryId) {
+    const btn = document.getElementById(`transcribe-btn-${entryId}`);
+    btn.disabled = true;
+    btn.innerHTML = 'Transcribing...<span class="loading"></span>';
+
+    try {
+        const res = await fetch(`${API}/api/entries/${entryId}/transcribe`, { method: "POST" });
+        if (!res.ok) {
+            const err = await res.json();
+            alert("Transcription error: " + (err.detail || "Failed"));
+            return;
+        }
+        const entry = await res.json();
+        // Update the Quill editor with the new notes
+        const quill = quillEditors[entryId];
+        if (quill) {
+            quill.root.innerHTML = entry.notes || "";
+        }
+    } catch (e) {
+        alert("Transcription error: " + e.message);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = "Transcribe";
+    }
+}
+
+async function transcribeAll() {
+    const btn = document.getElementById("transcribe-all-btn");
+    btn.disabled = true;
+    btn.innerHTML = 'Transcribing all...<span class="loading"></span>';
+
+    try {
+        const res = await fetch(`${API}/api/chapters/${currentChapterId}/entries`);
+        const entries = await res.json();
+
+        for (const entry of entries) {
+            // Skip if already has transcription
+            if (entry.notes && entry.notes.includes("--- Transcription ---")) continue;
+            if (!entry.video_path) continue;
+
+            const tbtn = document.getElementById(`transcribe-btn-${entry.id}`);
+            if (tbtn) {
+                tbtn.disabled = true;
+                tbtn.innerHTML = 'Transcribing...<span class="loading"></span>';
+            }
+
+            const r = await fetch(`${API}/api/entries/${entry.id}/transcribe`, { method: "POST" });
+            if (r.ok) {
+                const updated = await r.json();
+                const quill = quillEditors[entry.id];
+                if (quill) quill.root.innerHTML = updated.notes || "";
+            }
+
+            if (tbtn) {
+                tbtn.disabled = false;
+                tbtn.textContent = "Transcribe";
+            }
+        }
+    } catch (e) {
+        alert("Error: " + e.message);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = "Transcribe All";
+    }
 }
 
 async function addEntry() {
