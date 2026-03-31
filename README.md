@@ -15,42 +15,61 @@ A personal media notebook web app for saving videos with rich-text notes — lik
 - **Organized File Storage** — Videos and notes saved in `media/Notebook_Name/Chapter_Name/` with clean filenames
 - **Fully Local** — No cloud, no accounts. Videos and notes stay on your machine
 
-## Quick Start
+## Getting Started
 
-The easiest way to get started — clone the repo and run the launcher script. It creates a virtual environment, installs all dependencies (yt-dlp, whisper, etc.), and starts the app.
+### Step 1: Install Prerequisites
 
-**macOS / Linux:**
+Before anything else, install these two things:
+
+1. **Python 3.10+** — Download and install from [python.org](https://www.python.org/downloads/)
+   - **Windows users:** During installation, make sure to check the box that says **"Add Python to PATH"**
+   - **Mac users:** Python 3 may already be installed. Open Terminal and type `python3 --version` to check
+
+2. **ffmpeg** — Needed for video processing and transcription
+   - **Mac:** Open Terminal and run: `brew install ffmpeg` (requires [Homebrew](https://brew.sh))
+   - **Windows:** Download from [ffmpeg.org](https://ffmpeg.org/download.html) and [add it to your PATH](https://www.wikihow.com/Install-FFmpeg-on-Windows)
+   - **Linux:** `sudo apt install ffmpeg`
+
+### Step 2: Download the App
+
+1. Go to [the GitHub page](https://github.com/artificialnouveau/digital_culture_notebook)
+2. Click the green **"Code"** button
+3. Click **"Download ZIP"**
+4. Unzip the downloaded file somewhere on your computer (e.g. your Desktop or Documents folder)
+
+### Step 3: Run the App
+
+**Mac / Linux:**
+1. Open **Terminal**
+2. Drag the unzipped `digital_culture_notebook` folder into the Terminal window (this types the path for you)
+3. Type `cd ` (with a space) before the path, then press Enter
+4. Type `./install_and_run.sh` and press Enter
+
+Or copy-paste this (replace the path with where you unzipped it):
 ```bash
-git clone https://github.com/artificialnouveau/digital_culture_notebook.git
-cd digital_culture_notebook
+cd ~/Desktop/digital_culture_notebook
 ./install_and_run.sh
 ```
 
 **Windows:**
-```bash
-git clone https://github.com/artificialnouveau/digital_culture_notebook.git
-cd digital_culture_notebook
-install_and_run.bat
-```
+1. Open the unzipped `digital_culture_notebook` folder
+2. Double-click **`install_and_run.bat`**
 
-Then open [http://localhost:8080](http://localhost:8080) in your browser.
+The script will automatically install everything it needs (yt-dlp, Whisper, etc.) and start the app. This may take a few minutes the first time.
 
-### Prerequisites
+### Step 4: Open the App
 
-The only things you need installed beforehand:
+Once the script says "Starting Digital Culture Notebook", open your browser and go to:
 
-- **Python 3.10+** — [Download](https://www.python.org/downloads/) (on Windows, check "Add Python to PATH" during installation)
-- **ffmpeg** — Required for video processing and transcription
+**[http://localhost:8080](http://localhost:8080)**
 
-  macOS: `brew install ffmpeg`
-  Ubuntu/Debian: `sudo apt install ffmpeg`
-  Windows: [Download](https://ffmpeg.org/download.html) and add to PATH
+To stop the app, press `Ctrl+C` in the terminal window. To start it again later, just repeat Step 3.
 
-Everything else (FastAPI, yt-dlp, Whisper, etc.) is installed automatically by the launcher script.
+---
 
-## Manual Setup
+## Advanced: Manual Setup
 
-If you prefer to install manually instead of using the launcher:
+If you prefer to set things up yourself:
 
 ```bash
 pip install -r requirements.txt
