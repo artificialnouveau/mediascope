@@ -5,7 +5,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from database import get_db, init_db
-from downloader import download_video, save_notes_file, MEDIA_DIR
+from downloader import download_video, download_video_to_folder, trim_video, save_notes_file, MEDIA_DIR
 from transcriber import transcribe_video
 
 app = FastAPI()
@@ -36,6 +36,21 @@ class NoteUpdate(BaseModel):
 
 class ReorderBody(BaseModel):
     chapter_ids: list[int]
+
+class BulkDownloadItem(BaseModel):
+    url: str
+    start: str = ""
+    end: str = ""
+
+class BulkDownloadRequest(BaseModel):
+    folder: str
+    urls: list[BulkDownloadItem]
+    transcribe: bool = False
+
+class TrimRequest(BaseModel):
+    video_path: str
+    start: str = ""
+    end: str = ""
 
 
 # --- Media serving ---
@@ -277,6 +292,93 @@ def delete_entry(entry_id: int):
     db.commit()
     db.close()
     return {"ok": True}
+
+
+# --- Bulk Download ---
+
+@app.post("/api/bulk/download")
+def bulk_download_one(item: BulkDownloadItem, folder: str = ""):
+    """Download a single video to a bulk folder."""
+    if not folder:
+        raise HTTPException(400, "Folder name required")
+    try:
+        result = download_video_to_folder(item.url, folder)
+    except Exception as e:
+        raise HTTPException(400, f"Download failed: {e}")
+
+    # Trim if timestamps provided
+    if item.start or item.end:
+        try:
+            trim_video(result["video_path"], item.start, item.end)
+        except Exception as e:
+            # Download succeeded but trim failed - return with warning
+            result["trim_error"] = str(e)
+
+    return result
+
+
+@app.post("/api/bulk/transcribe")
+def bulk_transcribe(video_path: str = ""):
+    """Transcribe a bulk-downloaded video and save as .txt."""
+    if not video_path:
+        raise HTTPException(400, "video_path required")
+    try:
+        transcript = transcribe_video(video_path)
+    except Exception as e:
+        raise HTTPException(500, f"Transcription failed: {e}")
+
+    save_notes_file(video_path, transcript)
+    return {"transcript": transcript, "video_path": video_path}
+
+
+@app.post("/api/trim")
+def trim_entry_video(data: TrimRequest):
+    """Trim any video by path."""
+    try:
+        trim_video(data.video_path, data.start, data.end)
+    except Exception as e:
+        raise HTTPException(500, f"Trim failed: {e}")
+    return {"ok": True, "video_path": data.video_path}
+
+
+@app.get("/api/bulk/folders")
+def list_bulk_folders():
+    """List all bulk download folders."""
+    downloads_dir = os.path.join(MEDIA_DIR, "Downloads")
+    if not os.path.isdir(downloads_dir):
+        return []
+    folders = []
+    for name in sorted(os.listdir(downloads_dir)):
+        folder_path = os.path.join(downloads_dir, name)
+        if os.path.isdir(folder_path):
+            files = [f for f in os.listdir(folder_path) if f.endswith(".mp4")]
+            folders.append({"name": name, "video_count": len(files)})
+    return folders
+
+
+@app.get("/api/bulk/folders/{folder_name}")
+def list_bulk_folder_contents(folder_name: str):
+    """List videos in a bulk download folder."""
+    folder_path = os.path.join(MEDIA_DIR, "Downloads", folder_name)
+    if not os.path.isdir(folder_path):
+        raise HTTPException(404, "Folder not found")
+    videos = []
+    for f in sorted(os.listdir(folder_path)):
+        if f.endswith(".mp4"):
+            video_path = os.path.join("Downloads", folder_name, f)
+            txt_path = os.path.join(folder_path, os.path.splitext(f)[0] + ".txt")
+            transcript = ""
+            if os.path.isfile(txt_path):
+                with open(txt_path, "r", encoding="utf-8") as tf:
+                    transcript = tf.read()
+            videos.append({
+                "filename": f,
+                "video_path": video_path,
+                "title": os.path.splitext(f)[0].replace("_", " "),
+                "has_transcript": bool(transcript),
+                "transcript": transcript,
+            })
+    return videos
 
 
 # --- Search ---

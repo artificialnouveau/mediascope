@@ -198,6 +198,7 @@ async function selectChapter(id, name) {
     document.getElementById("welcome").style.display = "none";
     document.getElementById("chapter-view").style.display = "flex";
     document.getElementById("search-results").style.display = "none";
+    document.getElementById("bulk-view").style.display = "none";
     await loadChapterNotes(id);
     await loadEntries(id);
 }
@@ -206,6 +207,7 @@ function showWelcome() {
     document.getElementById("welcome").style.display = "block";
     document.getElementById("chapter-view").style.display = "none";
     document.getElementById("search-results").style.display = "none";
+    document.getElementById("bulk-view").style.display = "none";
 }
 
 // --- Chapter notes ---
@@ -282,6 +284,13 @@ function createEntryCard(entry) {
                     <h4>${escapeHtml(entry.video_title || "Untitled")}</h4>
                 </div>
                 ${entry.source_url ? `<div class="entry-source">${escapeHtml(entry.source_url)}</div>` : ""}
+                ${entry.video_path ? `<div class="trim-row" style="margin-bottom:8px;">
+                    <label style="font-size:12px;color:#666;">Start:</label>
+                    <input type="text" id="entry-trim-start-${entry.id}" placeholder="00:00:00" style="width:100px;padding:4px 6px;border:1px solid #ddd;border-radius:4px;font-size:12px;font-family:monospace;">
+                    <label style="font-size:12px;color:#666;">End:</label>
+                    <input type="text" id="entry-trim-end-${entry.id}" placeholder="00:01:30" style="width:100px;padding:4px 6px;border:1px solid #ddd;border-radius:4px;font-size:12px;font-family:monospace;">
+                    <button class="btn btn-secondary" onclick="trimEntryVideo(${entry.id}, '${entry.video_path}')">Trim</button>
+                </div>` : ""}
                 <div id="${editorId}">${entry.notes || ""}</div>
                 <div class="entry-actions">
                     <button class="btn btn-primary" onclick="saveNotes(${entry.id})">Save Notes</button>
@@ -378,6 +387,31 @@ async function transcribeAll() {
     }
 }
 
+async function trimEntryVideo(entryId, videoPath) {
+    const start = document.getElementById(`entry-trim-start-${entryId}`).value.trim();
+    const end = document.getElementById(`entry-trim-end-${entryId}`).value.trim();
+    if (!start && !end) {
+        alert("Enter at least a start or end timestamp.");
+        return;
+    }
+    try {
+        const res = await fetch(`${API}/api/trim`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ video_path: videoPath, start, end }),
+        });
+        if (!res.ok) {
+            const err = await res.json();
+            alert("Trim failed: " + (err.detail || "Error"));
+            return;
+        }
+        // Reload entries to refresh the video player
+        await loadEntries(currentChapterId);
+    } catch (e) {
+        alert("Trim error: " + e.message);
+    }
+}
+
 async function addEntry() {
     const urlInput = document.getElementById("entry-url");
     const notesInput = document.getElementById("entry-notes");
@@ -466,6 +500,7 @@ async function doSearch(q) {
     const container = document.getElementById("search-results");
     document.getElementById("welcome").style.display = "none";
     document.getElementById("chapter-view").style.display = "none";
+    document.getElementById("bulk-view").style.display = "none";
     container.style.display = "block";
 
     if (results.length === 0) {
@@ -494,7 +529,267 @@ async function doSearch(q) {
     });
 }
 
+// --- Bulk Download ---
+
+let currentBulkFolder = null;
+
+function showBulkDownload() {
+    document.getElementById("welcome").style.display = "none";
+    document.getElementById("chapter-view").style.display = "none";
+    document.getElementById("search-results").style.display = "none";
+    document.getElementById("bulk-view").style.display = "flex";
+    document.getElementById("bulk-view").style.flexDirection = "column";
+    document.getElementById("bulk-view").style.flex = "1";
+    document.getElementById("bulk-view").style.overflow = "hidden";
+    currentChapterId = null;
+    document.querySelectorAll("#chapter-list li").forEach(li => li.classList.remove("active"));
+    loadBulkFolders();
+}
+
+function hideBulkView() {
+    document.getElementById("bulk-view").style.display = "none";
+}
+
+async function loadBulkFolders() {
+    const res = await fetch(`${API}/api/bulk/folders`);
+    const folders = await res.json();
+    const container = document.getElementById("bulk-folders-list");
+    container.innerHTML = "";
+
+    if (folders.length === 0) {
+        container.innerHTML = '<p style="color:#888; font-size:13px;">No downloads yet.</p>';
+        return;
+    }
+
+    folders.forEach(f => {
+        const card = document.createElement("div");
+        card.className = "bulk-folder-card";
+        card.innerHTML = `
+            <span class="folder-name">${escapeHtml(f.name.replace(/_/g, " "))}</span>
+            <span class="folder-count">${f.video_count} video${f.video_count !== 1 ? "s" : ""}</span>
+        `;
+        card.addEventListener("click", () => openBulkFolder(f.name));
+        container.appendChild(card);
+    });
+}
+
+async function openBulkFolder(folderName) {
+    currentBulkFolder = folderName;
+    const res = await fetch(`${API}/api/bulk/folders/${encodeURIComponent(folderName)}`);
+    const videos = await res.json();
+
+    document.getElementById("bulk-folder-title").textContent = folderName.replace(/_/g, " ");
+    document.getElementById("bulk-folder-contents").style.display = "block";
+
+    const container = document.getElementById("bulk-videos-list");
+    container.innerHTML = "";
+
+    videos.forEach((v, idx) => {
+        const card = document.createElement("div");
+        card.className = "bulk-video-card";
+        card.id = `bulk-video-${idx}`;
+        card.innerHTML = `
+            <div class="bulk-video-inner">
+                <div class="bulk-video-player">
+                    <video controls preload="metadata">
+                        <source src="/media/${v.video_path}" type="video/mp4">
+                    </video>
+                </div>
+                <div class="bulk-video-info">
+                    <h4>${escapeHtml(v.title)}</h4>
+                    <div class="trim-row">
+                        <label>Start:</label>
+                        <input type="text" id="trim-start-${idx}" placeholder="00:00:00" data-path="${v.video_path}">
+                        <label>End:</label>
+                        <input type="text" id="trim-end-${idx}" placeholder="00:01:30">
+                        <button class="btn btn-secondary" onclick="trimBulkVideo(${idx}, '${v.video_path}')">Trim</button>
+                    </div>
+                    ${v.has_transcript
+                        ? `<div class="transcript-box">${escapeHtml(v.transcript)}</div>`
+                        : `<div class="transcript-box" id="transcript-${idx}" style="display:none;"></div>`
+                    }
+                    <div class="bulk-video-actions">
+                        ${!v.has_transcript ? `<button class="btn btn-secondary" id="bulk-transcribe-${idx}" onclick="transcribeBulkVideo(${idx}, '${v.video_path}')">Transcribe</button>` : '<span style="font-size:12px;color:#888;">Transcribed</span>'}
+                    </div>
+                </div>
+            </div>
+        `;
+        container.appendChild(card);
+    });
+}
+
+async function startBulkDownload() {
+    const folder = document.getElementById("bulk-folder").value.trim();
+    const urlsText = document.getElementById("bulk-urls").value.trim();
+    const transcribe = document.getElementById("bulk-transcribe").checked;
+    const btn = document.getElementById("bulk-download-btn");
+    const progress = document.getElementById("bulk-progress");
+
+    if (!folder || !urlsText) {
+        alert("Please enter a folder name and at least one URL.");
+        return;
+    }
+
+    const urls = urlsText.split("\n").map(u => u.trim()).filter(u => u);
+    btn.disabled = true;
+    btn.innerHTML = 'Downloading...<span class="loading"></span>';
+
+    let completed = 0;
+    let errors = [];
+    let doneList = [];
+
+    for (const url of urls) {
+        const shortUrl = url.length > 60 ? url.substring(0, 60) + "..." : url;
+        progress.innerHTML = buildBulkProgress(completed + 1, urls.length, doneList, errors, `Downloading: ${escapeHtml(shortUrl)}`);
+
+        try {
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 300000); // 5 min timeout
+
+            const res = await fetch(`${API}/api/bulk/download?folder=${encodeURIComponent(folder)}`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ url }),
+                signal: controller.signal,
+            });
+            clearTimeout(timeout);
+
+            if (!res.ok) {
+                const err = await res.json();
+                errors.push(`${shortUrl}: ${err.detail || "Failed"}`);
+            } else {
+                const result = await res.json();
+                doneList.push(result.title || shortUrl);
+                if (transcribe) {
+                    progress.innerHTML = buildBulkProgress(completed + 1, urls.length, doneList, errors, `Transcribing: ${escapeHtml(result.title || shortUrl)}`);
+                    try {
+                        await fetch(`${API}/api/bulk/transcribe?video_path=${encodeURIComponent(result.video_path)}`, {
+                            method: "POST",
+                        });
+                    } catch (te) {
+                        errors.push(`Transcribe ${shortUrl}: ${te.message}`);
+                    }
+                }
+            }
+        } catch (e) {
+            if (e.name === "AbortError") {
+                errors.push(`${shortUrl}: Timed out (5 min)`);
+            } else {
+                errors.push(`${shortUrl}: ${e.message}`);
+            }
+        }
+        completed++;
+    }
+
+    btn.disabled = false;
+    btn.textContent = "Download All";
+    const succeeded = completed - errors.length;
+
+    if (errors.length > 0) {
+        progress.innerHTML = `<strong>Done! ${succeeded}/${urls.length} succeeded.</strong><br><br>` +
+            `<span style="color:#ef4444;font-size:12px;">${errors.map(e => escapeHtml(e)).join("<br>")}</span>`;
+    } else {
+        progress.innerHTML = `<strong>Done!</strong> All ${urls.length} videos downloaded.`;
+        document.getElementById("bulk-urls").value = "";
+    }
+
+    await loadBulkFolders();
+    if (currentBulkFolder === folder.replace(/ /g, "_")) {
+        await openBulkFolder(currentBulkFolder);
+    }
+}
+
+async function trimBulkVideo(idx, videoPath) {
+    const start = document.getElementById(`trim-start-${idx}`).value.trim();
+    const end = document.getElementById(`trim-end-${idx}`).value.trim();
+
+    if (!start && !end) {
+        alert("Enter at least a start or end timestamp.");
+        return;
+    }
+
+    try {
+        const res = await fetch(`${API}/api/trim`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ video_path: videoPath, start, end }),
+        });
+        if (!res.ok) {
+            const err = await res.json();
+            alert("Trim failed: " + (err.detail || "Error"));
+            return;
+        }
+        // Refresh the video player
+        const card = document.getElementById(`bulk-video-${idx}`);
+        const video = card.querySelector("video");
+        video.src = `/media/${videoPath}?t=${Date.now()}`;
+        video.load();
+    } catch (e) {
+        alert("Trim error: " + e.message);
+    }
+}
+
+async function transcribeBulkVideo(idx, videoPath) {
+    const btn = document.getElementById(`bulk-transcribe-${idx}`);
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = 'Transcribing...<span class="loading"></span>';
+    }
+
+    try {
+        const res = await fetch(`${API}/api/bulk/transcribe?video_path=${encodeURIComponent(videoPath)}`, {
+            method: "POST",
+        });
+        if (!res.ok) {
+            const err = await res.json();
+            alert("Transcription failed: " + (err.detail || "Error"));
+            return;
+        }
+        const data = await res.json();
+        const box = document.getElementById(`transcript-${idx}`);
+        if (box) {
+            box.textContent = data.transcript;
+            box.style.display = "block";
+        }
+        if (btn) {
+            btn.textContent = "Transcribed";
+            btn.disabled = true;
+        }
+    } catch (e) {
+        alert("Error: " + e.message);
+    } finally {
+        if (btn && !btn.disabled) {
+            btn.disabled = false;
+            btn.textContent = "Transcribe";
+        }
+    }
+}
+
+async function transcribeAllBulk() {
+    if (!currentBulkFolder) return;
+    const res = await fetch(`${API}/api/bulk/folders/${encodeURIComponent(currentBulkFolder)}`);
+    const videos = await res.json();
+
+    for (let i = 0; i < videos.length; i++) {
+        if (videos[i].has_transcript) continue;
+        await transcribeBulkVideo(i, videos[i].video_path);
+    }
+}
+
 // --- Helpers ---
+
+function buildBulkProgress(current, total, doneList, errors, statusText) {
+    let html = `<strong>${statusText}</strong> (${current} of ${total})<br>`;
+    if (doneList.length > 0) {
+        html += `<div style="margin-top:8px;font-size:12px;color:#16a34a;">`;
+        doneList.forEach(t => { html += `&#10003; ${escapeHtml(t)} is done<br>`; });
+        html += `</div>`;
+    }
+    if (errors.length > 0) {
+        html += `<div style="margin-top:4px;font-size:12px;color:#ef4444;">${errors.length} failed</div>`;
+    }
+    return html;
+}
 
 function escapeHtml(text) {
     const div = document.createElement("div");

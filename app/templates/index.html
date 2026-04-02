@@ -35,6 +35,10 @@
         <input type="text" id="new-chapter-name" placeholder="New chapter...">
         <button onclick="addChapter()">+</button>
     </div>
+
+    <div id="sidebar-bulk">
+        <button class="btn-bulk" onclick="showBulkDownload()">Bulk Download</button>
+    </div>
 </div>
 
 <div id="main">
@@ -78,6 +82,46 @@
             </div>
 
             <div id="entries-list"></div>
+        </div>
+    </div>
+
+    <!-- Bulk download view -->
+    <div id="bulk-view" style="display:none">
+        <div id="toolbar">
+            <h2>Bulk Download</h2>
+        </div>
+        <div id="content" style="overflow-y:auto; flex:1; padding:24px;">
+            <div id="add-entry-form">
+                <h3>Download Videos to a Folder</h3>
+                <div class="form-row">
+                    <input type="text" id="bulk-folder" placeholder="Folder name (e.g. 'TikTok March 2026')">
+                </div>
+                <textarea id="bulk-urls" rows="8" placeholder="Paste video URLs here, one per line..."></textarea>
+                <div style="margin-top:12px; display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+                    <label style="font-size:13px; color:#666; display:flex; align-items:center; gap:6px;">
+                        <input type="checkbox" id="bulk-transcribe"> Transcribe after download
+                    </label>
+                </div>
+                <div style="margin-top:12px">
+                    <button class="btn btn-primary" id="bulk-download-btn" onclick="startBulkDownload()">Download All</button>
+                </div>
+                <div id="bulk-progress" style="margin-top:16px; font-size:13px; color:#666;"></div>
+            </div>
+
+            <!-- Existing bulk folders -->
+            <div id="bulk-folders-section" style="margin-top:24px;">
+                <h3 style="margin-bottom:12px; font-size:15px;">Downloaded Folders</h3>
+                <div id="bulk-folders-list"></div>
+            </div>
+
+            <!-- Folder contents viewer -->
+            <div id="bulk-folder-contents" style="display:none; margin-top:24px;">
+                <h3 id="bulk-folder-title" style="margin-bottom:12px; font-size:15px;"></h3>
+                <div style="margin-bottom:12px;">
+                    <button class="btn btn-secondary" onclick="transcribeAllBulk()">Transcribe All</button>
+                </div>
+                <div id="bulk-videos-list"></div>
+            </div>
         </div>
     </div>
 

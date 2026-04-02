@@ -165,6 +165,124 @@ body {
     font-size: 13px;
 }
 
+/* Bulk download sidebar button */
+#sidebar-bulk {
+    padding: 12px 20px;
+    border-top: 1px solid #313244;
+}
+
+.btn-bulk {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid #45475a;
+    border-radius: 6px;
+    background: #313244;
+    color: #cba6f7;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    transition: background 0.15s;
+}
+
+.btn-bulk:hover { background: #45475a; }
+
+/* Bulk folder cards */
+.bulk-folder-card {
+    background: #fff;
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin-bottom: 10px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.bulk-folder-card:hover { background: #f0ecff; }
+
+.bulk-folder-card .folder-name { font-weight: 600; font-size: 14px; }
+.bulk-folder-card .folder-count { font-size: 12px; color: #888; }
+
+/* Bulk video card */
+.bulk-video-card {
+    background: #fff;
+    border-radius: 10px;
+    margin-bottom: 16px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    overflow: hidden;
+}
+
+.bulk-video-inner {
+    display: flex;
+}
+
+.bulk-video-player {
+    width: 45%;
+    min-width: 280px;
+    background: #000;
+    display: flex;
+    align-items: center;
+}
+
+.bulk-video-player video { width: 100%; max-height: 350px; }
+
+.bulk-video-info {
+    flex: 1;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+}
+
+.bulk-video-info h4 { font-size: 14px; margin-bottom: 8px; }
+
+.bulk-video-info .trim-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+}
+
+.bulk-video-info .trim-row input {
+    width: 100px;
+    padding: 5px 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 12px;
+    font-family: monospace;
+}
+
+.bulk-video-info .trim-row label {
+    font-size: 12px;
+    color: #666;
+}
+
+.bulk-video-info .transcript-box {
+    flex: 1;
+    min-height: 60px;
+    max-height: 150px;
+    overflow-y: auto;
+    background: #f5f5f5;
+    border-radius: 6px;
+    padding: 10px;
+    font-size: 13px;
+    color: #555;
+    margin-top: 8px;
+}
+
+.bulk-video-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+@media (max-width: 800px) {
+    .bulk-video-inner { flex-direction: column; }
+    .bulk-video-player { width: 100%; min-width: unset; }
+}
+
 /* Search bar in sidebar */
 #search-box {
     padding: 12px 20px;
