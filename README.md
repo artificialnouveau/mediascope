@@ -41,11 +41,9 @@ If you don't have Python installed yet:
 **Windows:**
 - Open the unzipped folder and double-click **`install_and_run.bat`**
 
-That's it! The script automatically installs everything (yt-dlp, Whisper, etc.) and opens the app in your browser. The first launch takes a few minutes while dependencies install.
+That's it! The script automatically installs everything needed — including **Homebrew** and **ffmpeg** if they're missing (Mac) — and opens the app in your browser. The first launch takes a few minutes while dependencies install.
 
-> **Note:** If the script warns about **ffmpeg** missing, video downloading still works but transcription won't. To install ffmpeg:
-> - **Mac:** Open Terminal and run `brew install ffmpeg` (requires [Homebrew](https://brew.sh))
-> - **Windows:** Download from [ffmpeg.org](https://ffmpeg.org/download.html) and [add it to PATH](https://www.wikihow.com/Install-FFmpeg-on-Windows)
+> **Windows note:** ffmpeg is not auto-installed on Windows. If the script warns about it missing, download from [ffmpeg.org](https://ffmpeg.org/download.html) and [add it to PATH](https://www.wikihow.com/Install-FFmpeg-on-Windows). Without ffmpeg, video downloading still works but trimming and transcription won't.
 
 To stop the app, close the terminal window or press `Ctrl+C`.
 

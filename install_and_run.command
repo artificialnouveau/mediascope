@@ -25,17 +25,41 @@ if ! command -v python3 &>/dev/null; then
     exit 1
 fi
 
-# Check for ffmpeg
+# Check for ffmpeg and auto-install if missing
 if ! command -v ffmpeg &>/dev/null; then
-    echo "WARNING: ffmpeg is not installed (needed for video processing & transcription)."
+    echo "ffmpeg is not installed (needed for video processing & transcription)."
+    echo "Attempting to install automatically..."
     echo ""
-    echo "To install ffmpeg:"
-    echo "  macOS:  Open Terminal and run: brew install ffmpeg"
-    echo "  Linux:  sudo apt install ffmpeg"
-    echo ""
-    read -p "Continue without ffmpeg for now? [y/N] " choice
-    if [[ ! "$choice" =~ ^[Yy]$ ]]; then
-        exit 1
+
+    if [[ "$(uname)" == "Darwin" ]]; then
+        # macOS — install via Homebrew
+        if ! command -v brew &>/dev/null; then
+            echo "Installing Homebrew first..."
+            /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+            # Add Homebrew to PATH for Apple Silicon and Intel Macs
+            if [ -f /opt/homebrew/bin/brew ]; then
+                eval "$(/opt/homebrew/bin/brew shellenv)"
+            elif [ -f /usr/local/bin/brew ]; then
+                eval "$(/usr/local/bin/brew shellenv)"
+            fi
+        fi
+        echo "Installing ffmpeg via Homebrew (this may take a few minutes)..."
+        brew install ffmpeg
+    else
+        # Linux
+        echo "Installing ffmpeg via apt..."
+        sudo apt update && sudo apt install -y ffmpeg
+    fi
+
+    if ! command -v ffmpeg &>/dev/null; then
+        echo ""
+        echo "WARNING: ffmpeg installation failed. Video trimming and transcription won't work."
+        read -p "Continue anyway? [y/N] " choice
+        if [[ ! "$choice" =~ ^[Yy]$ ]]; then
+            exit 1
+        fi
+    else
+        echo "ffmpeg installed successfully!"
     fi
 fi
 
