@@ -64,8 +64,14 @@ echo "  Press Ctrl+C to stop"
 echo "========================================"
 echo ""
 
-# Open the browser automatically after a short delay
-(sleep 3 && open "http://localhost:8080") &
+# Open the browser once the server is actually ready
+(
+    for i in $(seq 1 30); do
+        curl -s -o /dev/null http://localhost:8080/ && break
+        sleep 1
+    done
+    open "http://localhost:8080"
+) &
 
 cd app
 python -m uvicorn main:app --host 0.0.0.0 --port 8080

@@ -403,7 +403,7 @@ def search(q: str = ""):
 # --- HTML Export ---
 
 @app.get("/api/chapters/{chapter_id}/export")
-def export_chapter(chapter_id: int):
+def export_chapter(chapter_id: int, request: Request):
     db = get_db()
     chapter = db.execute("SELECT * FROM chapters WHERE id = ?", (chapter_id,)).fetchone()
     if not chapter:
@@ -414,15 +414,16 @@ def export_chapter(chapter_id: int):
         (chapter_id,),
     ).fetchall()
     db.close()
-    return templates.TemplateResponse("export.html", {
-        "request": None,
-        "chapter": dict(chapter),
-        "entries": [dict(e) for e in entries],
-    }, media_type="text/html")
+    return templates.TemplateResponse(
+        request,
+        "export.html",
+        context={"chapter": dict(chapter), "entries": [dict(e) for e in entries]},
+        media_type="text/html",
+    )
 
 
 # --- Main page ---
 
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+    return templates.TemplateResponse(request, "index.html")
