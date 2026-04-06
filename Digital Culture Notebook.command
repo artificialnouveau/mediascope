@@ -14,11 +14,20 @@ else
     exit 0
 fi
 
+# Kill any leftover server from a previous run
+lsof -ti:8080 | xargs kill -9 2>/dev/null || true
+
 echo "========================================"
 echo "  Starting Digital Culture Notebook..."
 echo "  Closing this window will stop the app."
 echo "========================================"
 echo ""
+
+# Ensure the server is stopped when this script exits
+cleanup() {
+    lsof -ti:8080 | xargs kill -9 2>/dev/null || true
+}
+trap cleanup EXIT INT TERM
 
 # Open browser once the server is actually ready
 (

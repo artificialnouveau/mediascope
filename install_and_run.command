@@ -80,6 +80,9 @@ echo "Installing dependencies..."
 pip install --upgrade pip -q
 pip install -r requirements.txt -q
 
+# Kill any leftover server from a previous run
+lsof -ti:8080 | xargs kill -9 2>/dev/null || true
+
 echo ""
 echo "========================================"
 echo "  Starting Digital Culture Notebook"
@@ -87,6 +90,12 @@ echo "  Open http://localhost:8080 in your browser"
 echo "  Press Ctrl+C to stop"
 echo "========================================"
 echo ""
+
+# Ensure the server is stopped when this script exits
+cleanup() {
+    lsof -ti:8080 | xargs kill -9 2>/dev/null || true
+}
+trap cleanup EXIT INT TERM
 
 # Open the browser once the server is actually ready
 (

@@ -182,10 +182,23 @@ def download_video_to_folder(url: str, folder_name: str) -> dict:
     }
 
 
+def _find_ffmpeg() -> str:
+    import shutil
+    path = shutil.which("ffmpeg")
+    if path:
+        return path
+    for candidate in ["/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/opt/anaconda3/bin/ffmpeg"]:
+        if os.path.isfile(candidate):
+            return candidate
+    raise FileNotFoundError("ffmpeg not found. Install it with: brew install ffmpeg")
+
+
 def trim_video(video_path: str, start: str, end: str) -> str:
     """Trim a video using ffmpeg. start/end are timestamps like '00:01:30' or '90'.
     Returns the relative path to the trimmed video."""
     import subprocess
+
+    ffmpeg = _find_ffmpeg()
 
     full_path = os.path.join(MEDIA_DIR, video_path)
     if not os.path.isfile(full_path):
@@ -194,7 +207,7 @@ def trim_video(video_path: str, start: str, end: str) -> str:
     base, ext = os.path.splitext(full_path)
     trimmed_path = f"{base}_trimmed{ext}"
 
-    cmd = ["ffmpeg", "-y", "-i", full_path]
+    cmd = [ffmpeg, "-y", "-i", full_path]
     if start:
         cmd += ["-ss", start]
     if end:
@@ -204,7 +217,7 @@ def trim_video(video_path: str, start: str, end: str) -> str:
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         # Fallback: re-encode if stream copy fails
-        cmd2 = ["ffmpeg", "-y", "-i", full_path]
+        cmd2 = [ffmpeg, "-y", "-i", full_path]
         if start:
             cmd2 += ["-ss", start]
         if end:
