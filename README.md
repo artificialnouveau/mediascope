@@ -168,3 +168,7 @@ digital_culture_notebook/
 - Whisper `base` model (~150MB) downloaded on first transcription
 - Embedding model `all-MiniLM-L6-v2` (~90MB) downloaded on first index build
 - Scene detection runs entirely in the browser
+
+## License
+
+This project is licensed under [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/) — free for personal and non-commercial use. Commercial use requires a separate license. See [LICENSE](LICENSE) for details.
