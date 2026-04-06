@@ -279,7 +279,7 @@ def update_notes(entry_id: int, data: NoteUpdate):
 
 
 @app.post("/api/entries/{entry_id}/transcribe")
-def transcribe_entry(entry_id: int):
+def transcribe_entry(entry_id: int, diarize: bool = False):
     db = get_db()
     row = db.execute("SELECT * FROM entries WHERE id = ?", (entry_id,)).fetchone()
     db.close()
@@ -288,12 +288,12 @@ def transcribe_entry(entry_id: int):
     if not row["video_path"]:
         raise HTTPException(400, "No video to transcribe")
 
-    # Skip if already transcribed
-    if row["transcript"]:
+    # Skip if already transcribed (unless re-transcribing with diarization)
+    if row["transcript"] and not diarize:
         return dict(row)
 
     try:
-        transcript = transcribe_video(row["video_path"])
+        transcript = transcribe_video(row["video_path"], diarize=diarize)
     except Exception as e:
         raise HTTPException(500, f"Transcription failed: {e}")
 

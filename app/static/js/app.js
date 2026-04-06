@@ -328,6 +328,7 @@ function createEntryCard(entry) {
                 <div class="entry-actions">
                     <button class="btn btn-primary" onclick="saveNotes(${entry.id})">Save Notes</button>
                     <button class="btn btn-secondary" id="transcribe-btn-${entry.id}" onclick="transcribeEntry(${entry.id})">Transcribe</button>
+                    <button class="btn btn-secondary" id="diarize-btn-${entry.id}" onclick="transcribeEntry(${entry.id}, true)">Transcribe with Speakers</button>
                     ${entry.video_path ? `<button class="btn btn-secondary" onclick="openSceneSplitter(${entry.id}, '${entry.video_path}')">Split Scenes</button>` : ""}
                     <button class="btn btn-danger" onclick="deleteEntry(${entry.id})">Delete</button>
                 </div>
@@ -362,13 +363,15 @@ function createEntryCard(entry) {
     return card;
 }
 
-async function transcribeEntry(entryId) {
-    const btn = document.getElementById(`transcribe-btn-${entryId}`);
+async function transcribeEntry(entryId, diarize = false) {
+    const btn = document.getElementById(diarize ? `diarize-btn-${entryId}` : `transcribe-btn-${entryId}`);
+    const origText = btn.textContent;
     btn.disabled = true;
-    btn.innerHTML = 'Transcribing...<span class="loading"></span>';
+    btn.innerHTML = diarize ? 'Identifying speakers...<span class="loading"></span>' : 'Transcribing...<span class="loading"></span>';
 
     try {
-        const res = await fetch(`${API}/api/entries/${entryId}/transcribe`, { method: "POST" });
+        const url = `${API}/api/entries/${entryId}/transcribe` + (diarize ? "?diarize=true" : "");
+        const res = await fetch(url, { method: "POST" });
         if (!res.ok) {
             const err = await res.json();
             showToast(err.detail || "Failed", "error");
@@ -385,7 +388,7 @@ async function transcribeEntry(entryId) {
         showToast(e.message, "error");
     } finally {
         btn.disabled = false;
-        btn.textContent = "Transcribe";
+        btn.textContent = origText;
     }
 }
 
