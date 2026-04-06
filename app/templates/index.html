@@ -39,6 +39,10 @@
     <div id="sidebar-bulk">
         <button class="btn-bulk" onclick="showBulkDownload()">Bulk Download</button>
     </div>
+
+    <div id="sidebar-settings" style="padding:12px 20px;border-top:1px solid #313244;">
+        <button class="btn-bulk" onclick="showSettings()">Settings</button>
+    </div>
 </div>
 
 <div id="main">
@@ -152,6 +156,37 @@
                     <div id="bulk-rag-results" style="margin-top:8px;"></div>
                 </div>
                 <div id="bulk-videos-list"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Settings view -->
+    <div id="settings-view" style="display:none">
+        <div id="toolbar">
+            <h2>Settings</h2>
+        </div>
+        <div id="content" style="overflow-y:auto; flex:1; padding:24px;">
+            <div id="add-entry-form">
+                <h3>Cloud API Key</h3>
+                <p style="font-size:13px;color:#666;margin-bottom:12px;">
+                    Enter your API key to unlock cloud features: faster GPU transcription, auto-tagging, translation, and comment scraping.
+                    <a href="https://artificialnouveau.com/media-notebook/" target="_blank" style="color:#7c3aed;">Get a key</a>
+                </p>
+                <div class="form-row">
+                    <input type="text" id="cloud-api-key" placeholder="dcn_..." style="font-family:monospace;">
+                </div>
+                <div style="margin-top:12px;display:flex;gap:8px;">
+                    <button class="btn btn-primary" onclick="saveCloudKey()">Save Key</button>
+                    <button class="btn btn-secondary" onclick="clearCloudKey()">Remove Key</button>
+                </div>
+                <div id="cloud-key-status" style="margin-top:12px;font-size:13px;"></div>
+            </div>
+
+            <div id="add-entry-form" style="margin-top:24px;">
+                <h3>Cloud Status</h3>
+                <div id="cloud-status-info" style="font-size:13px;color:#666;">
+                    No cloud API key configured. Using local processing only.
+                </div>
             </div>
         </div>
     </div>

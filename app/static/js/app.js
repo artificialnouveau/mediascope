@@ -1,8 +1,11 @@
 const API = "";
+const CLOUD_API_URL = "https://dcn-cloud-api.fly.dev"; // Cloud API server
 let currentNotebookId = null;
 let currentChapterId = null;
 let quillEditors = {};
 let chapterNotesQuill = null;
+let cloudApiKey = localStorage.getItem("dcn_cloud_key") || "";
+let cloudFeatures = null; // Set after key validation
 
 // --- Notebook management ---
 
@@ -202,6 +205,7 @@ async function selectChapter(id, name) {
     document.getElementById("chapter-view").style.display = "flex";
     document.getElementById("search-results").style.display = "none";
     document.getElementById("bulk-view").style.display = "none";
+    document.getElementById("settings-view").style.display = "none";
 
     // Clear download progress (not persistent)
     const progressEl = document.getElementById("entry-download-progress");
@@ -225,6 +229,7 @@ function showWelcome() {
     document.getElementById("chapter-view").style.display = "none";
     document.getElementById("search-results").style.display = "none";
     document.getElementById("bulk-view").style.display = "none";
+    document.getElementById("settings-view").style.display = "none";
 }
 
 // --- Chapter notes ---
@@ -605,6 +610,7 @@ async function doSearch(q) {
     document.getElementById("welcome").style.display = "none";
     document.getElementById("chapter-view").style.display = "none";
     document.getElementById("bulk-view").style.display = "none";
+    document.getElementById("settings-view").style.display = "none";
     container.style.display = "block";
 
     if (results.length === 0) {
@@ -656,6 +662,7 @@ function showBulkDownload() {
 
 function hideBulkView() {
     document.getElementById("bulk-view").style.display = "none";
+    document.getElementById("settings-view").style.display = "none";
 }
 
 async function loadBulkFolders() {
@@ -1610,8 +1617,105 @@ async function ragTrimAndSave(entryId, videoPath, start, end, btn) {
 
 // --- Init ---
 
+// --- Settings & Cloud API ---
+
+function showSettings() {
+    document.getElementById("welcome").style.display = "none";
+    document.getElementById("chapter-view").style.display = "none";
+    document.getElementById("search-results").style.display = "none";
+    document.getElementById("bulk-view").style.display = "none";
+    document.getElementById("settings-view").style.display = "none";
+    document.getElementById("settings-view").style.display = "flex";
+    document.getElementById("settings-view").style.flexDirection = "column";
+    document.getElementById("settings-view").style.flex = "1";
+    document.getElementById("settings-view").style.overflow = "hidden";
+    currentChapterId = null;
+    document.querySelectorAll("#chapter-list li").forEach(li => li.classList.remove("active"));
+
+    // Populate current key
+    document.getElementById("cloud-api-key").value = cloudApiKey;
+    if (cloudApiKey) validateCloudKey();
+}
+
+async function saveCloudKey() {
+    const key = document.getElementById("cloud-api-key").value.trim();
+    if (!key) { showToast("Enter an API key", "warning"); return; }
+
+    const statusEl = document.getElementById("cloud-key-status");
+    statusEl.innerHTML = 'Validating...<span class="loading"></span>';
+
+    try {
+        const res = await fetch(`${CLOUD_API_URL}/api/v1/validate-key`, {
+            method: "POST",
+            headers: { "X-API-Key": key },
+        });
+        if (!res.ok) {
+            statusEl.innerHTML = '<span style="color:#ef4444;">Invalid API key. Check your key and try again.</span>';
+            return;
+        }
+        const data = await res.json();
+        cloudApiKey = key;
+        localStorage.setItem("dcn_cloud_key", key);
+        cloudFeatures = data.features;
+        statusEl.innerHTML = `<span style="color:#16a34a;">Key valid! Tier: ${data.tier}. ${data.remaining_minutes} minutes remaining this month.</span>`;
+        updateCloudStatus(data);
+        showToast("Cloud API key saved", "success");
+    } catch (e) {
+        statusEl.innerHTML = '<span style="color:#d97706;">Could not reach cloud server. Cloud features will be available when the server is online.</span>';
+        // Still save the key for when the server comes online
+        cloudApiKey = key;
+        localStorage.setItem("dcn_cloud_key", key);
+    }
+}
+
+function clearCloudKey() {
+    cloudApiKey = "";
+    cloudFeatures = null;
+    localStorage.removeItem("dcn_cloud_key");
+    document.getElementById("cloud-api-key").value = "";
+    document.getElementById("cloud-key-status").innerHTML = "";
+    document.getElementById("cloud-status-info").textContent = "No cloud API key configured. Using local processing only.";
+    showToast("Cloud API key removed", "info");
+}
+
+async function validateCloudKey() {
+    if (!cloudApiKey) return;
+    try {
+        const res = await fetch(`${CLOUD_API_URL}/api/v1/validate-key`, {
+            method: "POST",
+            headers: { "X-API-Key": cloudApiKey },
+        });
+        if (res.ok) {
+            const data = await res.json();
+            cloudFeatures = data.features;
+            updateCloudStatus(data);
+        }
+    } catch (e) { /* cloud unavailable */ }
+}
+
+function updateCloudStatus(data) {
+    const el = document.getElementById("cloud-status-info");
+    if (!el) return;
+    el.innerHTML = `
+        <div style="color:#16a34a;font-weight:600;margin-bottom:8px;">Cloud connected</div>
+        <div>Tier: <strong>${data.tier}</strong></div>
+        <div>Usage: ${data.usage_minutes} / ${data.limit_minutes} minutes this month</div>
+        <div>Remaining: ${data.remaining_minutes} minutes</div>
+        <div style="margin-top:8px;font-size:12px;color:#999;">
+            Features: ${Object.entries(data.features || {}).filter(([k,v]) => v).map(([k]) => k.replace(/_/g, ' ')).join(', ')}
+        </div>
+    `;
+}
+
+function hasCloudFeature(feature) {
+    return cloudApiKey && cloudFeatures && cloudFeatures[feature];
+}
+
+// --- Init ---
+
 document.addEventListener("DOMContentLoaded", () => {
     loadNotebooks();
+    if (cloudApiKey) validateCloudKey();
 
     document.getElementById("notebook-dropdown").addEventListener("change", onNotebookChange);
 
