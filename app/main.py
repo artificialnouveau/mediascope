@@ -5,7 +5,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from database import get_db, init_db
-from downloader import download_video, download_video_to_folder, trim_video, save_notes_file, MEDIA_DIR
+from downloader import download_video, download_video_to_folder, trim_video, save_notes_file, MEDIA_DIR, _find_ffmpeg
 from transcriber import transcribe_video
 
 app = FastAPI()
@@ -51,6 +51,15 @@ class TrimRequest(BaseModel):
     video_path: str
     start: str = ""
     end: str = ""
+    entry_id: int | None = None
+
+class SceneRange(BaseModel):
+    start: str
+    end: str
+
+class SceneSplitRequest(BaseModel):
+    entry_id: int
+    scenes: list[SceneRange]
 
 
 # --- Media serving ---
@@ -165,10 +174,17 @@ def rename_chapter(chapter_id: int, data: NameBody):
 def get_chapter(chapter_id: int):
     db = get_db()
     row = db.execute("SELECT * FROM chapters WHERE id = ?", (chapter_id,)).fetchone()
-    db.close()
     if not row:
+        db.close()
         raise HTTPException(404, "Chapter not found")
-    return dict(row)
+    notebook = db.execute("SELECT * FROM notebooks WHERE id = ?", (row["notebook_id"],)).fetchone()
+    db.close()
+    result = dict(row)
+    if notebook:
+        from downloader import sanitize_name
+        folder_path = os.path.join(MEDIA_DIR, sanitize_name(notebook["name"]), sanitize_name(row["name"]))
+        result["folder_path"] = folder_path
+    return result
 
 
 @app.put("/api/chapters/{chapter_id}/notes")
@@ -263,7 +279,7 @@ def transcribe_entry(entry_id: int):
         raise HTTPException(400, "No video to transcribe")
 
     # Skip if already transcribed
-    if row["notes"] and "--- Transcription ---" in row["notes"]:
+    if row["transcript"]:
         return dict(row)
 
     try:
@@ -271,17 +287,12 @@ def transcribe_entry(entry_id: int):
     except Exception as e:
         raise HTTPException(500, f"Transcription failed: {e}")
 
-    # Append transcript to existing notes
-    existing = row["notes"] or ""
-    separator = "<p><br></p><p><strong>--- Transcription ---</strong></p>" if existing.strip() else "<p><strong>--- Transcription ---</strong></p>"
-    updated_notes = existing + separator + "<p>" + transcript + "</p>"
-
     db = get_db()
-    db.execute("UPDATE entries SET notes = ? WHERE id = ?", (updated_notes, entry_id))
+    db.execute("UPDATE entries SET transcript = ? WHERE id = ?", (transcript, entry_id))
     db.commit()
     entry = db.execute("SELECT * FROM entries WHERE id = ?", (entry_id,)).fetchone()
     db.close()
-    save_notes_file(entry["video_path"], updated_notes)
+    save_notes_file(entry["video_path"], transcript)
     return dict(entry)
 
 
@@ -309,7 +320,8 @@ def bulk_download_one(item: BulkDownloadItem, folder: str = ""):
     # Trim if timestamps provided
     if item.start or item.end:
         try:
-            trim_video(result["video_path"], item.start, item.end)
+            trimmed_path = trim_video(result["video_path"], item.start, item.end)
+            result["trimmed_video_path"] = trimmed_path
         except Exception as e:
             # Download succeeded but trim failed - return with warning
             result["trim_error"] = str(e)
@@ -333,12 +345,84 @@ def bulk_transcribe(video_path: str = ""):
 
 @app.post("/api/trim")
 def trim_entry_video(data: TrimRequest):
-    """Trim any video by path."""
+    """Trim a video, keeping the original. If entry_id is provided, create a new entry for the clip."""
     try:
-        trim_video(data.video_path, data.start, data.end)
+        trimmed_path = trim_video(data.video_path, data.start, data.end)
     except Exception as e:
         raise HTTPException(500, f"Trim failed: {e}")
-    return {"ok": True, "video_path": data.video_path}
+
+    # Build a title for the trimmed clip
+    time_label = f"{data.start or '0:00'}-{data.end or 'end'}"
+    new_entry = None
+
+    if data.entry_id:
+        db = get_db()
+        original = db.execute("SELECT * FROM entries WHERE id = ?", (data.entry_id,)).fetchone()
+        if original:
+            title = f"{original['video_title'] or 'Untitled'} (trim {time_label})"
+            cur = db.execute(
+                """INSERT INTO entries (chapter_id, source_url, video_path, video_title, thumbnail_path, notes)
+                   VALUES (?, ?, ?, ?, ?, '')""",
+                (original["chapter_id"], original["source_url"], trimmed_path, title, original["thumbnail_path"]),
+            )
+            db.commit()
+            new_entry = dict(db.execute("SELECT * FROM entries WHERE id = ?", (cur.lastrowid,)).fetchone())
+        db.close()
+
+    return {"ok": True, "video_path": trimmed_path, "entry": new_entry}
+
+
+@app.post("/api/split-scenes")
+def split_scenes(data: SceneSplitRequest):
+    """Split a video into scene clips using ffmpeg, creating a new entry for each."""
+    import subprocess
+
+    db = get_db()
+    original = db.execute("SELECT * FROM entries WHERE id = ?", (data.entry_id,)).fetchone()
+    db.close()
+    if not original:
+        raise HTTPException(404, "Entry not found")
+
+    video_path = original["video_path"]
+    abs_path = os.path.join(MEDIA_DIR, video_path)
+    if not os.path.isfile(abs_path):
+        raise HTTPException(404, "Video file not found")
+
+    ffmpeg = _find_ffmpeg()
+    base, ext = os.path.splitext(abs_path)
+    original_title = original["video_title"] or "Untitled"
+
+    new_entries = []
+    for i, scene in enumerate(data.scenes):
+        out_path = f"{base}_scene{i + 1}.mp4"
+        cmd = [ffmpeg, "-y", "-i", abs_path]
+        if scene.start:
+            cmd += ["-ss", scene.start]
+        if scene.end:
+            cmd += ["-to", scene.end]
+        cmd += ["-c", "copy", "-avoid_negative_ts", "make_zero", out_path]
+
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            raise HTTPException(500, f"ffmpeg failed on scene {i + 1}: {result.stderr[:500]}")
+
+        # Build relative path for DB (same structure as original)
+        rel_out = os.path.relpath(out_path, MEDIA_DIR)
+        time_label = f"{scene.start}-{scene.end}"
+        title = f"{original_title} (scene {i + 1}: {time_label})"
+
+        db = get_db()
+        cur = db.execute(
+            """INSERT INTO entries (chapter_id, source_url, video_path, video_title, thumbnail_path, notes)
+               VALUES (?, ?, ?, ?, ?, '')""",
+            (original["chapter_id"], original["source_url"], rel_out, title, original["thumbnail_path"]),
+        )
+        db.commit()
+        entry = dict(db.execute("SELECT * FROM entries WHERE id = ?", (cur.lastrowid,)).fetchone())
+        db.close()
+        new_entries.append(entry)
+
+    return {"ok": True, "entries": new_entries}
 
 
 @app.get("/api/bulk/folders")
@@ -398,6 +482,199 @@ def search(q: str = ""):
     ).fetchall()
     db.close()
     return [dict(r) for r in rows]
+
+
+# --- RAG Index ---
+
+@app.post("/api/chapters/{chapter_id}/build-index")
+def build_chapter_index(chapter_id: int):
+    """Build a semantic search index (index.json) for all entries in a chapter."""
+    from sentence_transformers import SentenceTransformer
+
+    db = get_db()
+    chapter = db.execute("SELECT * FROM chapters WHERE id = ?", (chapter_id,)).fetchone()
+    if not chapter:
+        db.close()
+        raise HTTPException(404, "Chapter not found")
+    notebook = db.execute("SELECT * FROM notebooks WHERE id = ?", (chapter["notebook_id"],)).fetchone()
+    entries = db.execute(
+        "SELECT * FROM entries WHERE chapter_id = ? ORDER BY created_at",
+        (chapter_id,),
+    ).fetchall()
+    db.close()
+
+    if not entries:
+        raise HTTPException(400, "No entries to index")
+
+    # Collect text chunks from transcripts and notes
+    chunks = []
+    videos = {}
+    for entry in entries:
+        e = dict(entry)
+        vid = str(e["id"])
+        videos[vid] = {
+            "title": e["video_title"] or "Untitled",
+            "video_path": e["video_path"],
+            "source_url": e["source_url"] or "",
+        }
+        # Add transcript chunks
+        transcript = e.get("transcript") or ""
+        if transcript:
+            # Split transcript into ~200 word chunks with overlap
+            words = transcript.split()
+            chunk_size = 200
+            overlap = 50
+            for i in range(0, len(words), chunk_size - overlap):
+                chunk_text = " ".join(words[i:i + chunk_size])
+                if chunk_text.strip():
+                    chunks.append({
+                        "id": f"{vid}_t_{i}",
+                        "text": chunk_text,
+                        "video_id": vid,
+                        "type": "transcript",
+                    })
+        # Add notes as a chunk
+        notes = e.get("notes") or ""
+        # Strip HTML tags from notes
+        import re
+        clean_notes = re.sub(r'<[^>]+>', ' ', notes).strip()
+        if clean_notes and len(clean_notes) > 10:
+            chunks.append({
+                "id": f"{vid}_n",
+                "text": clean_notes,
+                "video_id": vid,
+                "type": "notes",
+            })
+
+    if not chunks:
+        raise HTTPException(400, "No text content to index. Transcribe some entries first.")
+
+    # Generate embeddings
+    model = SentenceTransformer("all-MiniLM-L6-v2")
+    texts = [c["text"] for c in chunks]
+    embeddings = model.encode(texts, show_progress_bar=False).tolist()
+
+    # Build index.json
+    import json
+    index_data = {
+        "videos": videos,
+        "text_chunks": {
+            "ids": [c["id"] for c in chunks],
+            "documents": texts,
+            "metadatas": [{"video_id": c["video_id"], "type": c["type"]} for c in chunks],
+            "embeddings": embeddings,
+        },
+    }
+
+    # Save to the chapter folder
+    from downloader import sanitize_name
+    folder = os.path.join(MEDIA_DIR, sanitize_name(notebook["name"]), sanitize_name(chapter["name"]))
+    os.makedirs(folder, exist_ok=True)
+    index_path = os.path.join(folder, "index.json")
+    with open(index_path, "w", encoding="utf-8") as f:
+        json.dump(index_data, f)
+
+    return {
+        "ok": True,
+        "path": index_path,
+        "videos": len(videos),
+        "chunks": len(chunks),
+    }
+
+
+@app.post("/api/bulk/folders/{folder_name}/build-index")
+def build_bulk_index(folder_name: str):
+    """Build a semantic search index for a bulk download folder."""
+    from sentence_transformers import SentenceTransformer
+    import json
+
+    folder_path = os.path.join(MEDIA_DIR, "Downloads", folder_name)
+    if not os.path.isdir(folder_path):
+        raise HTTPException(404, "Folder not found")
+
+    chunks = []
+    videos = {}
+    for f in sorted(os.listdir(folder_path)):
+        if not f.endswith(".mp4"):
+            continue
+        vid = os.path.splitext(f)[0]
+        video_path = os.path.join("Downloads", folder_name, f)
+        videos[vid] = {
+            "title": vid.replace("_", " "),
+            "video_path": video_path,
+        }
+        txt_path = os.path.join(folder_path, vid + ".txt")
+        if os.path.isfile(txt_path):
+            with open(txt_path, "r", encoding="utf-8") as tf:
+                transcript = tf.read()
+            if transcript.strip():
+                words = transcript.split()
+                chunk_size = 200
+                overlap = 50
+                for i in range(0, len(words), chunk_size - overlap):
+                    chunk_text = " ".join(words[i:i + chunk_size])
+                    if chunk_text.strip():
+                        chunks.append({
+                            "id": f"{vid}_t_{i}",
+                            "text": chunk_text,
+                            "video_id": vid,
+                            "type": "transcript",
+                        })
+
+    if not chunks:
+        raise HTTPException(400, "No transcripts found. Transcribe some videos first.")
+
+    model = SentenceTransformer("all-MiniLM-L6-v2")
+    texts = [c["text"] for c in chunks]
+    embeddings = model.encode(texts, show_progress_bar=False).tolist()
+
+    index_data = {
+        "videos": videos,
+        "text_chunks": {
+            "ids": [c["id"] for c in chunks],
+            "documents": texts,
+            "metadatas": [{"video_id": c["video_id"], "type": c["type"]} for c in chunks],
+            "embeddings": embeddings,
+        },
+    }
+
+    index_path = os.path.join(folder_path, "index.json")
+    with open(index_path, "w", encoding="utf-8") as f:
+        json.dump(index_data, f)
+
+    return {
+        "ok": True,
+        "path": index_path,
+        "videos": len(videos),
+        "chunks": len(chunks),
+    }
+
+
+@app.get("/api/chapters/{chapter_id}/index")
+def get_chapter_index(chapter_id: int):
+    """Serve the index.json for a chapter."""
+    db = get_db()
+    chapter = db.execute("SELECT * FROM chapters WHERE id = ?", (chapter_id,)).fetchone()
+    if not chapter:
+        db.close()
+        raise HTTPException(404, "Chapter not found")
+    notebook = db.execute("SELECT * FROM notebooks WHERE id = ?", (chapter["notebook_id"],)).fetchone()
+    db.close()
+
+    from downloader import sanitize_name
+    index_path = os.path.join(MEDIA_DIR, sanitize_name(notebook["name"]), sanitize_name(chapter["name"]), "index.json")
+    if not os.path.isfile(index_path):
+        raise HTTPException(404, "No index found. Build it first.")
+    return FileResponse(index_path, media_type="application/json")
+
+
+@app.get("/api/bulk/folders/{folder_name}/index")
+def get_bulk_index(folder_name: str):
+    """Serve the index.json for a bulk folder."""
+    index_path = os.path.join(MEDIA_DIR, "Downloads", folder_name, "index.json")
+    if not os.path.isfile(index_path):
+        raise HTTPException(404, "No index found. Build it first.")
+    return FileResponse(index_path, media_type="application/json")
 
 
 # --- HTML Export ---

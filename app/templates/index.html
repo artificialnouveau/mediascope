@@ -55,6 +55,7 @@
         <div id="toolbar">
             <h2 id="chapter-title"></h2>
             <div class="toolbar-actions">
+                <button class="btn btn-secondary" id="build-index-btn" onclick="buildChapterIndex()" title="Build a semantic search index from transcripts. Rebuild after adding new videos.">Build Index</button>
                 <button class="btn btn-secondary" id="transcribe-all-btn" onclick="transcribeAll()">Transcribe All</button>
             </div>
         </div>
@@ -68,6 +69,18 @@
                     <button class="btn btn-primary" onclick="saveChapterNotes()">Save Notes</button>
                     <span id="chapter-notes-status" class="save-status"></span>
                 </div>
+            </div>
+
+            <!-- RAG Semantic Search -->
+            <div id="rag-search-section" style="display:none;background:#fff;border-radius:10px;padding:20px;margin-bottom:24px;box-shadow:0 1px 3px rgba(0,0,0,0.08);">
+                <h3 style="font-size:15px;margin-bottom:4px;">Semantic Search</h3>
+                <p style="font-size:11px;color:#999;margin-bottom:10px;">Searches transcripts by meaning. Click "Build Index" after adding or transcribing new videos to update.</p>
+                <div style="display:flex;gap:8px;">
+                    <input type="text" id="rag-search-input" placeholder="Search by meaning... e.g. &quot;protest movements&quot;" style="flex:1;padding:10px 14px;border:1px solid #ddd;border-radius:6px;font-size:14px;outline:none;">
+                    <button class="btn btn-primary" id="rag-search-btn" onclick="ragSearch()">Search</button>
+                </div>
+                <div id="rag-search-status" style="font-size:12px;color:#888;margin-top:6px;"></div>
+                <div id="rag-search-results" style="margin-top:12px;"></div>
             </div>
 
             <div id="add-entry-form">
@@ -117,8 +130,18 @@
             <!-- Folder contents viewer -->
             <div id="bulk-folder-contents" style="display:none; margin-top:24px;">
                 <h3 id="bulk-folder-title" style="margin-bottom:12px; font-size:15px;"></h3>
-                <div style="margin-bottom:12px;">
+                <div style="margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap;">
                     <button class="btn btn-secondary" onclick="transcribeAllBulk()">Transcribe All</button>
+                    <button class="btn btn-secondary" id="bulk-build-index-btn" onclick="buildBulkIndex()">Build Index</button>
+                </div>
+                <!-- Bulk RAG Search -->
+                <div id="bulk-rag-section" style="display:none;background:#f9f9f9;border-radius:8px;padding:14px;margin-bottom:12px;">
+                    <div style="display:flex;gap:8px;">
+                        <input type="text" id="bulk-rag-input" placeholder="Semantic search..." style="flex:1;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:13px;outline:none;">
+                        <button class="btn btn-primary" onclick="ragSearchBulk()">Search</button>
+                    </div>
+                    <div id="bulk-rag-status" style="font-size:12px;color:#888;margin-top:4px;"></div>
+                    <div id="bulk-rag-results" style="margin-top:8px;"></div>
                 </div>
                 <div id="bulk-videos-list"></div>
             </div>

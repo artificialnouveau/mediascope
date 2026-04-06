@@ -201,6 +201,7 @@ async function selectChapter(id, name) {
     document.getElementById("bulk-view").style.display = "none";
     await loadChapterNotes(id);
     await loadEntries(id);
+    await loadChapterRagIndex();
 }
 
 function showWelcome() {
@@ -232,6 +233,20 @@ async function loadChapterNotes(chapterId) {
     }
     chapterNotesQuill.root.innerHTML = chapter.notes || "";
     document.getElementById("chapter-notes-status").textContent = "";
+
+    // Show folder path
+    let pathEl = document.getElementById("chapter-folder-path");
+    if (!pathEl) {
+        pathEl = document.createElement("div");
+        pathEl.id = "chapter-folder-path";
+        pathEl.style.cssText = "font-size:11px;color:#999;margin-bottom:12px;word-break:break-all;font-family:monospace;";
+        document.getElementById("chapter-notes-section").prepend(pathEl);
+    }
+    if (chapter.folder_path) {
+        pathEl.textContent = "Files saved to: " + chapter.folder_path;
+    } else {
+        pathEl.textContent = "";
+    }
 }
 
 async function saveChapterNotes() {
@@ -290,12 +305,20 @@ function createEntryCard(entry) {
                     <label style="font-size:12px;color:#666;">End:</label>
                     <input type="text" id="entry-trim-end-${entry.id}" placeholder="00:01:30" style="width:100px;padding:4px 6px;border:1px solid #ddd;border-radius:4px;font-size:12px;font-family:monospace;">
                     <button class="btn btn-secondary" onclick="trimEntryVideo(${entry.id}, '${entry.video_path}')">Trim</button>
+                    <button class="btn btn-secondary" onclick="openSceneSplitter(${entry.id}, '${entry.video_path}')">Split Scenes</button>
                 </div>` : ""}
                 <div id="${editorId}">${entry.notes || ""}</div>
                 <div class="entry-actions">
                     <button class="btn btn-primary" onclick="saveNotes(${entry.id})">Save Notes</button>
                     <button class="btn btn-secondary" id="transcribe-btn-${entry.id}" onclick="transcribeEntry(${entry.id})">Transcribe</button>
                     <button class="btn btn-danger" onclick="deleteEntry(${entry.id})">Delete</button>
+                </div>
+                <div class="transcript-section" id="transcript-section-${entry.id}" style="${entry.transcript ? '' : 'display:none;'}">
+                    <div class="transcript-header" style="display:flex;align-items:center;justify-content:space-between;margin-top:12px;padding:6px 0;border-top:1px solid #e0e0e0;">
+                        <strong style="font-size:13px;color:#555;">Transcription</strong>
+                        <button class="btn btn-secondary" style="font-size:11px;padding:2px 8px;" onclick="toggleTranscript(${entry.id})">Show/Hide</button>
+                    </div>
+                    <div class="transcript-body" id="transcript-body-${entry.id}" style="font-size:13px;color:#444;line-height:1.5;padding:8px;background:#f9f9f9;border-radius:4px;max-height:300px;overflow-y:auto;white-space:pre-wrap;">${escapeHtml(entry.transcript || "")}</div>
                 </div>
             </div>
         </div>
@@ -334,16 +357,25 @@ async function transcribeEntry(entryId) {
             return;
         }
         const entry = await res.json();
-        // Update the Quill editor with the new notes
-        const quill = quillEditors[entryId];
-        if (quill) {
-            quill.root.innerHTML = entry.notes || "";
+        // Show the transcript in its dedicated section
+        const section = document.getElementById(`transcript-section-${entryId}`);
+        const body = document.getElementById(`transcript-body-${entryId}`);
+        if (section && body) {
+            body.textContent = entry.transcript || "";
+            section.style.display = "";
         }
     } catch (e) {
         alert("Transcription error: " + e.message);
     } finally {
         btn.disabled = false;
         btn.textContent = "Transcribe";
+    }
+}
+
+function toggleTranscript(entryId) {
+    const body = document.getElementById(`transcript-body-${entryId}`);
+    if (body) {
+        body.style.display = body.style.display === "none" ? "" : "none";
     }
 }
 
@@ -358,7 +390,7 @@ async function transcribeAll() {
 
         for (const entry of entries) {
             // Skip if already has transcription
-            if (entry.notes && entry.notes.includes("--- Transcription ---")) continue;
+            if (entry.transcript) continue;
             if (!entry.video_path) continue;
 
             const tbtn = document.getElementById(`transcribe-btn-${entry.id}`);
@@ -370,8 +402,12 @@ async function transcribeAll() {
             const r = await fetch(`${API}/api/entries/${entry.id}/transcribe`, { method: "POST" });
             if (r.ok) {
                 const updated = await r.json();
-                const quill = quillEditors[entry.id];
-                if (quill) quill.root.innerHTML = updated.notes || "";
+                const section = document.getElementById(`transcript-section-${entry.id}`);
+                const body = document.getElementById(`transcript-body-${entry.id}`);
+                if (section && body) {
+                    body.textContent = updated.transcript || "";
+                    section.style.display = "";
+                }
             }
 
             if (tbtn) {
@@ -394,21 +430,30 @@ async function trimEntryVideo(entryId, videoPath) {
         alert("Enter at least a start or end timestamp.");
         return;
     }
+    const btn = event.target;
+    btn.disabled = true;
+    btn.textContent = "Trimming...";
     try {
         const res = await fetch(`${API}/api/trim`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ video_path: videoPath, start, end }),
+            body: JSON.stringify({ video_path: videoPath, start, end, entry_id: entryId }),
         });
         if (!res.ok) {
             const err = await res.json();
             alert("Trim failed: " + (err.detail || "Error"));
             return;
         }
-        // Reload entries to refresh the video player
+        const data = await res.json();
+        const timeLabel = `${start || "0:00"}\u2013${end || "end"}`;
+        alert(`Trim complete (${timeLabel}). A new entry has been created for the trimmed clip. The original video is unchanged.`);
+        // Reload entries to show the new trimmed entry
         await loadEntries(currentChapterId);
     } catch (e) {
         alert("Trim error: " + e.message);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = "Trim";
     }
 }
 
@@ -422,6 +467,15 @@ async function addEntry() {
 
     btn.disabled = true;
     btn.innerHTML = 'Downloading...<span class="loading"></span>';
+
+    // Show progress bar
+    let progressEl = document.getElementById("entry-download-progress");
+    if (!progressEl) {
+        progressEl = document.createElement("div");
+        progressEl.id = "entry-download-progress";
+        btn.parentNode.appendChild(progressEl);
+    }
+    progressEl.innerHTML = '<div class="download-progress-bar download-progress-pulse"><div class="download-progress-bar-fill"></div></div><div style="font-size:12px;color:#888;margin-top:4px;">Downloading and processing video...</div>';
 
     try {
         const res = await fetch(`${API}/api/entries`, {
@@ -448,6 +502,7 @@ async function addEntry() {
     } finally {
         btn.disabled = false;
         btn.textContent = "Download & Save";
+        if (progressEl) progressEl.innerHTML = "";
     }
 }
 
@@ -581,6 +636,16 @@ async function openBulkFolder(folderName) {
     document.getElementById("bulk-folder-title").textContent = folderName.replace(/_/g, " ");
     document.getElementById("bulk-folder-contents").style.display = "block";
 
+    // Show folder path
+    let bulkPathEl = document.getElementById("bulk-folder-path");
+    if (!bulkPathEl) {
+        bulkPathEl = document.createElement("div");
+        bulkPathEl.id = "bulk-folder-path";
+        bulkPathEl.style.cssText = "font-size:11px;color:#999;margin-bottom:12px;word-break:break-all;font-family:monospace;";
+        document.getElementById("bulk-folder-title").after(bulkPathEl);
+    }
+    bulkPathEl.textContent = "Files saved to: media/Downloads/" + folderName;
+
     const container = document.getElementById("bulk-videos-list");
     container.innerHTML = "";
 
@@ -616,6 +681,8 @@ async function openBulkFolder(folderName) {
         `;
         container.appendChild(card);
     });
+
+    await loadBulkRagIndex();
 }
 
 async function startBulkDownload() {
@@ -708,6 +775,10 @@ async function trimBulkVideo(idx, videoPath) {
         return;
     }
 
+    const btn = event.target;
+    btn.disabled = true;
+    btn.textContent = "Trimming...";
+
     try {
         const res = await fetch(`${API}/api/trim`, {
             method: "POST",
@@ -719,13 +790,17 @@ async function trimBulkVideo(idx, videoPath) {
             alert("Trim failed: " + (err.detail || "Error"));
             return;
         }
-        // Refresh the video player
-        const card = document.getElementById(`bulk-video-${idx}`);
-        const video = card.querySelector("video");
-        video.src = `/media/${videoPath}?t=${Date.now()}`;
-        video.load();
+        const timeLabel = `${start || "0:00"}\u2013${end || "end"}`;
+        alert(`Trim complete (${timeLabel}). The trimmed clip has been saved. The original video is unchanged.`);
+        // Reload folder to show the new trimmed file
+        if (currentBulkFolder) {
+            await openBulkFolder(currentBulkFolder);
+        }
     } catch (e) {
         alert("Trim error: " + e.message);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = "Trim";
     }
 }
 
@@ -779,7 +854,9 @@ async function transcribeAllBulk() {
 // --- Helpers ---
 
 function buildBulkProgress(current, total, doneList, errors, statusText) {
-    let html = `<strong>${statusText}</strong> (${current} of ${total})<br>`;
+    const pct = Math.round((current - 1) / total * 100);
+    let html = `<div class="download-progress-bar"><div class="download-progress-bar-fill" style="width:${pct}%"></div></div>`;
+    html += `<div style="margin-top:6px;"><strong>${statusText}</strong> (${current} of ${total})</div>`;
     if (doneList.length > 0) {
         html += `<div style="margin-top:8px;font-size:12px;color:#16a34a;">`;
         doneList.forEach(t => { html += `&#10003; ${escapeHtml(t)} is done<br>`; });
@@ -797,6 +874,456 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
+// --- Scene Splitting ---
+
+function computeFrameHash(ctx, w, h) {
+    const imgData = ctx.getImageData(0, 0, w, h).data;
+    const gridW = Math.floor(w / 8), gridH = Math.floor(h / 8);
+    const hash = [];
+    for (let gy = 0; gy < 8; gy++) {
+        for (let gx = 0; gx < 8; gx++) {
+            let sum = 0, count = 0;
+            const sx = gx * gridW, sy = gy * gridH;
+            for (let y = sy; y < sy + gridH; y += 2) {
+                for (let x = sx; x < sx + gridW; x += 2) {
+                    const i = (y * w + x) * 4;
+                    sum += imgData[i] * 0.299 + imgData[i + 1] * 0.587 + imgData[i + 2] * 0.114;
+                    count++;
+                }
+            }
+            hash.push(sum / count);
+        }
+    }
+    return hash;
+}
+
+function frameDiff(a, b) {
+    let sum = 0;
+    for (let i = 0; i < a.length; i++) sum += Math.abs(a[i] - b[i]);
+    return sum / a.length;
+}
+
+function seekTo(video, time) {
+    return new Promise(resolve => {
+        video.currentTime = time;
+        video.addEventListener("seeked", resolve, { once: true });
+    });
+}
+
+function formatTime(seconds) {
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = Math.floor(seconds % 60);
+    return h > 0 ? `${h}:${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}` : `${m}:${String(s).padStart(2,"0")}`;
+}
+
+function openSceneSplitter(entryId, videoPath) {
+    // Remove existing modal if any
+    const existing = document.getElementById("scene-modal");
+    if (existing) existing.remove();
+
+    const modal = document.createElement("div");
+    modal.id = "scene-modal";
+    modal.innerHTML = `
+        <div class="scene-modal-backdrop" onclick="closeSceneModal()"></div>
+        <div class="scene-modal-content">
+            <div class="scene-modal-header">
+                <h3>Scene Splitter</h3>
+                <button onclick="closeSceneModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:#666;">&times;</button>
+            </div>
+            <div class="scene-modal-body">
+                <video id="scene-video" controls preload="auto" style="width:100%;max-height:300px;background:#000;border-radius:6px;">
+                    <source src="/media/${videoPath}" type="video/mp4">
+                </video>
+                <div style="display:flex;gap:12px;align-items:center;margin-top:12px;flex-wrap:wrap;">
+                    <label style="font-size:13px;color:#555;">Sensitivity:
+                        <input type="range" id="scene-sensitivity" min="5" max="60" value="25" style="width:120px;vertical-align:middle;">
+                        <span id="scene-sensitivity-val">25</span>
+                    </label>
+                    <label style="font-size:13px;color:#555;">Sample interval:
+                        <select id="scene-interval" style="padding:4px;border-radius:4px;border:1px solid #ddd;">
+                            <option value="0.3">0.3s (fast)</option>
+                            <option value="0.5" selected>0.5s</option>
+                            <option value="1">1s (faster)</option>
+                        </select>
+                    </label>
+                </div>
+                <div style="margin-top:12px;">
+                    <button class="btn btn-primary" id="scene-detect-btn" onclick="runSceneDetection('${videoPath}', ${entryId})">Detect Scenes</button>
+                </div>
+                <div id="scene-progress" style="display:none;margin-top:12px;">
+                    <div style="background:#e0e0e0;border-radius:4px;height:8px;overflow:hidden;">
+                        <div id="scene-progress-bar" style="height:100%;background:#7c3aed;width:0%;transition:width 0.2s;"></div>
+                    </div>
+                    <div id="scene-progress-text" style="font-size:12px;color:#888;margin-top:4px;"></div>
+                </div>
+                <div id="scene-results" style="margin-top:16px;"></div>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+
+    document.getElementById("scene-sensitivity").addEventListener("input", e => {
+        document.getElementById("scene-sensitivity-val").textContent = e.target.value;
+    });
+}
+
+function closeSceneModal() {
+    const modal = document.getElementById("scene-modal");
+    if (modal) modal.remove();
+}
+
+async function runSceneDetection(videoPath, entryId) {
+    const video = document.getElementById("scene-video");
+    const btn = document.getElementById("scene-detect-btn");
+    const progressWrap = document.getElementById("scene-progress");
+    const progressBar = document.getElementById("scene-progress-bar");
+    const progressText = document.getElementById("scene-progress-text");
+    const resultsDiv = document.getElementById("scene-results");
+
+    btn.disabled = true;
+    btn.textContent = "Detecting...";
+    progressWrap.style.display = "block";
+    resultsDiv.innerHTML = "";
+
+    const threshold = parseInt(document.getElementById("scene-sensitivity").value);
+    const interval = parseFloat(document.getElementById("scene-interval").value);
+
+    await new Promise(resolve => {
+        if (video.readyState >= 1) return resolve();
+        video.addEventListener("loadedmetadata", resolve, { once: true });
+    });
+
+    const duration = video.duration;
+    const canvas = document.createElement("canvas");
+    const cw = 320, ch = Math.round(320 * (video.videoHeight / video.videoWidth) || 180);
+    canvas.width = cw;
+    canvas.height = ch;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+
+    const thumbCanvas = document.createElement("canvas");
+    thumbCanvas.width = 160;
+    thumbCanvas.height = Math.round(160 * (video.videoHeight / video.videoWidth) || 90);
+    const thumbCtx = thumbCanvas.getContext("2d");
+
+    const cuts = [0];
+    let prevHash = null;
+    const thumbnails = {};
+
+    for (let t = 0; t < duration; t += interval) {
+        await seekTo(video, t);
+        ctx.drawImage(video, 0, 0, cw, ch);
+        const hash = computeFrameHash(ctx, cw, ch);
+
+        if (prevHash !== null) {
+            const diff = frameDiff(prevHash, hash);
+            if (diff > threshold) {
+                cuts.push(t);
+            }
+        }
+        // Capture thumbnail for this cut
+        if (cuts[cuts.length - 1] === t || t === 0) {
+            thumbCtx.drawImage(video, 0, 0, thumbCanvas.width, thumbCanvas.height);
+            thumbnails[t] = thumbCanvas.toDataURL("image/jpeg", 0.7);
+        }
+
+        prevHash = hash;
+        const pct = Math.round((t / duration) * 100);
+        progressBar.style.width = pct + "%";
+        progressText.textContent = `Analyzing: ${pct}% (${Math.round(t)}s / ${Math.round(duration)}s)`;
+    }
+
+    // Build scenes from cuts
+    const scenes = [];
+    for (let i = 0; i < cuts.length; i++) {
+        const start = cuts[i];
+        const end = (i < cuts.length - 1) ? cuts[i + 1] : duration;
+        scenes.push({ start, end, thumbnail: thumbnails[start] || thumbnails[0] });
+    }
+
+    progressWrap.style.display = "none";
+    btn.disabled = false;
+    btn.textContent = "Detect Scenes";
+
+    // Render scene results
+    if (scenes.length <= 1) {
+        resultsDiv.innerHTML = '<p style="color:#888;">No scene changes detected. Try lowering the sensitivity.</p>';
+        return;
+    }
+
+    let html = `<p style="margin-bottom:12px;font-size:13px;"><strong>${scenes.length} scenes detected.</strong> Select which scenes to save:</p>`;
+    html += '<div style="max-height:400px;overflow-y:auto;">';
+    scenes.forEach((s, i) => {
+        html += `
+            <div style="display:flex;align-items:center;gap:10px;padding:8px;border-bottom:1px solid #f0f0f0;">
+                <input type="checkbox" class="scene-check" data-index="${i}">
+                <img src="${s.thumbnail}" style="width:120px;height:auto;border-radius:4px;flex-shrink:0;cursor:pointer;" onclick="document.getElementById('scene-video').currentTime=${s.start}">
+                <div style="flex:1;">
+                    <strong style="font-size:13px;">Scene ${i + 1}</strong><br>
+                    <span style="font-size:12px;color:#666;">${formatTime(s.start)} \u2013 ${formatTime(s.end)} (${formatTime(s.end - s.start)})</span>
+                </div>
+                <button class="btn btn-secondary" style="font-size:11px;padding:4px 10px;" onclick="saveSingleScene(${entryId}, '${videoPath}', ${i})">Save</button>
+            </div>`;
+    });
+    html += '</div>';
+    html += `<div style="display:flex;gap:8px;margin-top:12px;">
+        <button class="btn btn-primary" onclick="saveSelectedScenes(${entryId}, '${videoPath}')">Save Selected</button>
+        <button class="btn btn-secondary" onclick="saveAllScenes(${entryId}, '${videoPath}')">Save All Scenes</button>
+    </div>`;
+
+    resultsDiv.innerHTML = html;
+
+    // Store scenes data for saving
+    window._detectedScenes = scenes;
+}
+
+async function _splitScenes(entryId, sceneList, btn) {
+    const origText = btn.textContent;
+    btn.disabled = true;
+    btn.innerHTML = 'Splitting...<span class="loading"></span>';
+    try {
+        const res = await fetch(`${API}/api/split-scenes`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ entry_id: entryId, scenes: sceneList }),
+        });
+        if (!res.ok) {
+            const err = await res.json();
+            alert("Split failed: " + (err.detail || "Error"));
+            return;
+        }
+        const data = await res.json();
+        alert(`Done! ${data.entries.length} scene(s) saved as new entries.`);
+        closeSceneModal();
+        if (currentChapterId) await loadEntries(currentChapterId);
+    } catch (e) {
+        alert("Error: " + e.message);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = origText;
+    }
+}
+
+async function saveSelectedScenes(entryId, videoPath) {
+    const scenes = window._detectedScenes;
+    if (!scenes) return;
+    const checks = document.querySelectorAll(".scene-check:checked");
+    const selected = Array.from(checks).map(cb => {
+        const i = parseInt(cb.dataset.index);
+        return { start: formatTime(scenes[i].start), end: formatTime(scenes[i].end) };
+    });
+    if (selected.length === 0) { alert("Select at least one scene."); return; }
+    await _splitScenes(entryId, selected, event.target);
+}
+
+async function saveAllScenes(entryId, videoPath) {
+    const scenes = window._detectedScenes;
+    if (!scenes) return;
+    const all = scenes.map(s => ({ start: formatTime(s.start), end: formatTime(s.end) }));
+    await _splitScenes(entryId, all, event.target);
+}
+
+async function saveSingleScene(entryId, videoPath, index) {
+    const scenes = window._detectedScenes;
+    if (!scenes || !scenes[index]) return;
+    const s = scenes[index];
+    await _splitScenes(entryId, [{ start: formatTime(s.start), end: formatTime(s.end) }], event.target);
+}
+
+// --- RAG Semantic Search ---
+
+let ragTextModel = null;
+let ragIndexData = null;
+let ragIndexType = null; // "chapter" or "bulk"
+
+async function loadTransformersModel() {
+    if (ragTextModel) return;
+    const T = await import("https://cdn.jsdelivr.net/npm/@huggingface/transformers@3");
+    ragTextModel = await T.pipeline("feature-extraction", "Xenova/all-MiniLM-L6-v2", { dtype: "fp32", device: "wasm" });
+}
+
+async function embedText(text) {
+    const output = await ragTextModel(text, { pooling: "mean", normalize: true });
+    return Array.from(output.data);
+}
+
+function cosineSim(a, b) {
+    let dot = 0, nA = 0, nB = 0;
+    const len = Math.min(a.length, b.length);
+    for (let i = 0; i < len; i++) { dot += a[i] * b[i]; nA += a[i] * a[i]; nB += b[i] * b[i]; }
+    return dot / (Math.sqrt(nA) * Math.sqrt(nB) + 1e-8);
+}
+
+async function buildChapterIndex() {
+    if (!currentChapterId) return;
+    const btn = document.getElementById("build-index-btn");
+    btn.disabled = true;
+    btn.innerHTML = 'Building index...<span class="loading"></span>';
+    try {
+        const res = await fetch(`${API}/api/chapters/${currentChapterId}/build-index`, { method: "POST" });
+        if (!res.ok) {
+            const err = await res.json();
+            alert("Index build failed: " + (err.detail || "Error"));
+            return;
+        }
+        const data = await res.json();
+        alert(`Index built! ${data.videos} videos, ${data.chunks} text chunks indexed.`);
+        document.getElementById("rag-search-section").style.display = "block";
+        // Pre-load the index
+        await loadChapterRagIndex();
+    } catch (e) {
+        alert("Error: " + e.message);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = "Build Index";
+    }
+}
+
+async function loadChapterRagIndex() {
+    try {
+        const res = await fetch(`${API}/api/chapters/${currentChapterId}/index`);
+        if (res.ok) {
+            ragIndexData = await res.json();
+            ragIndexType = "chapter";
+            document.getElementById("rag-search-section").style.display = "block";
+        }
+    } catch (e) { /* no index yet */ }
+}
+
+async function ragSearch() {
+    const query = document.getElementById("rag-search-input").value.trim();
+    if (!query || !ragIndexData) return;
+    const statusEl = document.getElementById("rag-search-status");
+    const resultsEl = document.getElementById("rag-search-results");
+
+    statusEl.textContent = "Loading model...";
+    try { await loadTransformersModel(); } catch (e) { statusEl.textContent = "Model failed to load."; return; }
+
+    statusEl.textContent = "Searching...";
+    const queryEmb = await embedText(query);
+
+    const chunks = ragIndexData.text_chunks;
+    const scored = [];
+    for (let i = 0; i < chunks.ids.length; i++) {
+        scored.push({
+            text: chunks.documents[i],
+            metadata: chunks.metadatas[i],
+            score: cosineSim(queryEmb, chunks.embeddings[i]),
+        });
+    }
+    scored.sort((a, b) => b.score - a.score);
+    const results = scored.filter(r => r.score >= 0.15).slice(0, 10);
+
+    statusEl.textContent = results.length ? `${results.length} result(s) found` : "No relevant results.";
+    resultsEl.innerHTML = "";
+
+    results.forEach(r => {
+        const vid = ragIndexData.videos[r.metadata.video_id];
+        const card = document.createElement("div");
+        card.style.cssText = "padding:10px;border:1px solid #e0e0e0;border-radius:6px;margin-bottom:8px;cursor:pointer;transition:border-color 0.15s;";
+        card.onmouseenter = () => card.style.borderColor = "#7c3aed";
+        card.onmouseleave = () => card.style.borderColor = "#e0e0e0";
+
+        const score = r.score >= 0.3 ? "strong" : "related";
+        const scoreColor = r.score >= 0.3 ? "#16a34a" : "#d97706";
+        card.innerHTML = `
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+                <strong style="font-size:13px;">${escapeHtml(vid ? vid.title : "Unknown")}</strong>
+                <span style="font-size:11px;font-weight:600;color:${scoreColor};">${score} (${r.score.toFixed(3)})</span>
+            </div>
+            <div style="font-size:12px;color:#666;line-height:1.4;max-height:60px;overflow:hidden;">${escapeHtml(r.text.substring(0, 300))}</div>
+            <div style="font-size:11px;color:#999;margin-top:4px;">${r.metadata.type}</div>
+        `;
+        if (vid && vid.video_path) {
+            card.onclick = () => {
+                const videoEl = document.querySelector(`[data-id="${r.metadata.video_id}"]`);
+                if (videoEl) videoEl.scrollIntoView({ behavior: "smooth", block: "center" });
+            };
+        }
+        resultsEl.appendChild(card);
+    });
+}
+
+async function buildBulkIndex() {
+    if (!currentBulkFolder) return;
+    const btn = document.getElementById("bulk-build-index-btn");
+    btn.disabled = true;
+    btn.innerHTML = 'Building index...<span class="loading"></span>';
+    try {
+        const res = await fetch(`${API}/api/bulk/folders/${encodeURIComponent(currentBulkFolder)}/build-index`, { method: "POST" });
+        if (!res.ok) {
+            const err = await res.json();
+            alert("Index build failed: " + (err.detail || "Error"));
+            return;
+        }
+        const data = await res.json();
+        alert(`Index built! ${data.videos} videos, ${data.chunks} text chunks indexed.`);
+        document.getElementById("bulk-rag-section").style.display = "block";
+        await loadBulkRagIndex();
+    } catch (e) {
+        alert("Error: " + e.message);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = "Build Index";
+    }
+}
+
+async function loadBulkRagIndex() {
+    if (!currentBulkFolder) return;
+    try {
+        const res = await fetch(`${API}/api/bulk/folders/${encodeURIComponent(currentBulkFolder)}/index`);
+        if (res.ok) {
+            ragIndexData = await res.json();
+            ragIndexType = "bulk";
+            document.getElementById("bulk-rag-section").style.display = "block";
+        }
+    } catch (e) { /* no index yet */ }
+}
+
+async function ragSearchBulk() {
+    const query = document.getElementById("bulk-rag-input").value.trim();
+    if (!query || !ragIndexData) return;
+    const statusEl = document.getElementById("bulk-rag-status");
+    const resultsEl = document.getElementById("bulk-rag-results");
+
+    statusEl.textContent = "Loading model...";
+    try { await loadTransformersModel(); } catch (e) { statusEl.textContent = "Model failed to load."; return; }
+
+    statusEl.textContent = "Searching...";
+    const queryEmb = await embedText(query);
+
+    const chunks = ragIndexData.text_chunks;
+    const scored = [];
+    for (let i = 0; i < chunks.ids.length; i++) {
+        scored.push({
+            text: chunks.documents[i],
+            metadata: chunks.metadatas[i],
+            score: cosineSim(queryEmb, chunks.embeddings[i]),
+        });
+    }
+    scored.sort((a, b) => b.score - a.score);
+    const results = scored.filter(r => r.score >= 0.15).slice(0, 10);
+
+    statusEl.textContent = results.length ? `${results.length} result(s) found` : "No relevant results.";
+    resultsEl.innerHTML = "";
+
+    results.forEach(r => {
+        const vid = ragIndexData.videos[r.metadata.video_id];
+        const card = document.createElement("div");
+        card.style.cssText = "padding:10px;background:#fff;border:1px solid #e0e0e0;border-radius:6px;margin-bottom:8px;";
+        const score = r.score >= 0.3 ? "strong" : "related";
+        const scoreColor = r.score >= 0.3 ? "#16a34a" : "#d97706";
+        card.innerHTML = `
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+                <strong style="font-size:13px;">${escapeHtml(vid ? vid.title : "Unknown")}</strong>
+                <span style="font-size:11px;font-weight:600;color:${scoreColor};">${score} (${r.score.toFixed(3)})</span>
+            </div>
+            <div style="font-size:12px;color:#666;line-height:1.4;max-height:60px;overflow:hidden;">${escapeHtml(r.text.substring(0, 300))}</div>
+        `;
+        resultsEl.appendChild(card);
+    });
+}
+
 // --- Init ---
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -809,4 +1336,11 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     document.getElementById("search-input").addEventListener("input", onSearch);
+
+    document.getElementById("rag-search-input").addEventListener("keydown", (e) => {
+        if (e.key === "Enter") ragSearch();
+    });
+    document.getElementById("bulk-rag-input").addEventListener("keydown", (e) => {
+        if (e.key === "Enter") ragSearchBulk();
+    });
 });

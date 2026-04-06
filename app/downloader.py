@@ -5,12 +5,16 @@ import yt_dlp
 MEDIA_DIR = os.path.join(os.path.dirname(__file__), "media")
 
 
+MAX_FILENAME_LENGTH = 80
+
+
 def sanitize_name(name: str) -> str:
-    """Remove special characters and replace spaces with underscores."""
+    """Remove special characters, replace spaces with underscores, and cap length."""
     name = re.sub(r'[^\w\s-]', '', name)
     name = re.sub(r'\s+', '_', name.strip())
     name = re.sub(r'_+', '_', name)
-    return name or "untitled"
+    name = (name or "untitled")[:MAX_FILENAME_LENGTH].rstrip('_')
+    return name
 
 
 def download_video(url: str, notebook_name: str, chapter_name: str) -> dict:
@@ -61,6 +65,8 @@ def download_video(url: str, notebook_name: str, chapter_name: str) -> dict:
 
     output_template = os.path.join(dest_dir, f"{final_name}.%(ext)s")
 
+    ffmpeg_path = _find_ffmpeg()
+
     ydl_opts = {
         **base_opts,
         **working_cookie_opt,
@@ -68,6 +74,11 @@ def download_video(url: str, notebook_name: str, chapter_name: str) -> dict:
         "format": "best[ext=mp4]/best",
         "merge_output_format": "mp4",
         "writethumbnail": True,
+        "ffmpeg_location": os.path.dirname(ffmpeg_path),
+        "postprocessors": [{
+            "key": "FFmpegVideoConvertor",
+            "preferedformat": "mp4",
+        }],
     }
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -148,12 +159,19 @@ def download_video_to_folder(url: str, folder_name: str) -> dict:
 
     output_template = os.path.join(dest_dir, f"{final_name}.%(ext)s")
 
+    ffmpeg_path = _find_ffmpeg()
+
     ydl_opts = {
         **base_opts,
         **working_cookie_opt,
         "outtmpl": output_template,
         "format": "best[ext=mp4]/best",
         "merge_output_format": "mp4",
+        "ffmpeg_location": os.path.dirname(ffmpeg_path),
+        "postprocessors": [{
+            "key": "FFmpegVideoConvertor",
+            "preferedformat": "mp4",
+        }],
     }
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -195,7 +213,7 @@ def _find_ffmpeg() -> str:
 
 def trim_video(video_path: str, start: str, end: str) -> str:
     """Trim a video using ffmpeg. start/end are timestamps like '00:01:30' or '90'.
-    Returns the relative path to the trimmed video."""
+    Keeps the original file and returns the relative path to the new trimmed file."""
     import subprocess
 
     ffmpeg = _find_ffmpeg()
@@ -205,32 +223,40 @@ def trim_video(video_path: str, start: str, end: str) -> str:
         raise FileNotFoundError(f"Video not found: {full_path}")
 
     base, ext = os.path.splitext(full_path)
-    trimmed_path = f"{base}_trimmed{ext}"
 
-    cmd = [ffmpeg, "-y", "-i", full_path]
+    # Find a unique filename so we never overwrite existing trims
+    counter = 1
+    trimmed_path = f"{base}_trim{counter}{ext}"
+    while os.path.exists(trimmed_path):
+        counter += 1
+        trimmed_path = f"{base}_trim{counter}{ext}"
+
+    # Build command: -ss before -i for fast seeking
+    cmd = [ffmpeg, "-y"]
     if start:
         cmd += ["-ss", start]
+    cmd += ["-i", full_path]
     if end:
         cmd += ["-to", end]
-    cmd += ["-c", "copy", trimmed_path]
+    cmd += ["-c", "copy", "-map", "0", trimmed_path]
 
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         # Fallback: re-encode if stream copy fails
-        cmd2 = [ffmpeg, "-y", "-i", full_path]
+        cmd2 = [ffmpeg, "-y"]
         if start:
             cmd2 += ["-ss", start]
+        cmd2 += ["-i", full_path]
         if end:
             cmd2 += ["-to", end]
-        cmd2 += [trimmed_path]
+        cmd2 += ["-map", "0", trimmed_path]
         result2 = subprocess.run(cmd2, capture_output=True, text=True)
         if result2.returncode != 0:
             raise RuntimeError(f"ffmpeg failed: {result2.stderr}")
 
-    # Replace original with trimmed
-    os.replace(trimmed_path, full_path)
-
-    return video_path
+    # Return the relative path to the trimmed file (original is untouched)
+    rel_base, rel_ext = os.path.splitext(video_path)
+    return f"{rel_base}_trim{counter}{rel_ext}"
 
 
 def save_notes_file(video_path: str, notes: str):

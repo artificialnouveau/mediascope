@@ -6,13 +6,16 @@ A personal media notebook web app for saving videos with rich-text notes — lik
 
 ## Features
 
-- **Notebooks** — Create multiple notebooks, each with its own set of chapters
-- **Chapters** — Organize content into named chapters within a notebook, each with its own rich-text notes. Reorder chapters with drag-and-drop or arrow buttons
-- **Video Entries** — Paste a URL, download the video locally, and write notes alongside it
-- **Transcription** — Transcribe any video using Whisper (faster-whisper). Transcribe individual entries or all entries in a chapter at once. Already-transcribed entries are automatically skipped
+- **Notebooks & Chapters** — Create multiple notebooks, each with named chapters. Reorder chapters with drag-and-drop or arrow buttons. Each chapter shows its file save path
+- **Video Entries** — Paste a URL, download the video locally, and write notes alongside it. Progress bar shown during download
+- **Transcription** — Transcribe any video using Whisper (faster-whisper) into a dedicated transcript section separate from your notes. Transcribe individual entries or all entries at once
+- **Video Trimming** — Trim videos by start/end timestamps. The original video is preserved and a new entry is created for each trim
+- **Scene Splitting** — Detect scene changes in a video using perceptual frame hashing (runs in-browser). Preview detected scenes with thumbnails, then save individual scenes or all scenes as separate entries
+- **Semantic Search (RAG)** — Build a search index from transcripts, then search by meaning using sentence embeddings. Uses `sentence-transformers` (server-side) for indexing and `Transformers.js` (client-side) for querying. Click "Build Index" to create; rebuild after adding new videos
+- **Bulk Download** — Download multiple videos at once into a named folder. Optionally transcribe all after download
+- **Keyword Search** — Search across all notes and video titles from the sidebar
 - **Rich Text Editor** — Bold, italic, lists, and headings via Quill.js
-- **Search** — Keyword search across all notes and video titles
-- **Organized File Storage** — Videos and notes saved in `media/Notebook_Name/Chapter_Name/` with clean filenames
+- **Organized File Storage** — Videos and notes saved in `media/Notebook_Name/Chapter_Name/` with clean filenames. Folder paths shown in the UI
 - **Fully Local** — No cloud, no accounts. Videos and notes stay on your machine
 
 ## Getting Started
@@ -23,7 +26,7 @@ If you don't have Python installed yet:
 
 1. Go to [python.org/downloads](https://www.python.org/downloads/)
 2. Download and install **Python 3.10 or newer**
-3. **Windows users:** During installation, check the box that says **"Add Python to PATH"** — this is important!
+3. **Windows users:** During installation, check the box that says **"Add Python to PATH"**
 
 *(Mac users: Python 3 may already be installed. The launcher will tell you if it's missing.)*
 
@@ -43,7 +46,7 @@ If you don't have Python installed yet:
 
 That's it! The script automatically installs everything needed — including **Homebrew** and **ffmpeg** if they're missing (Mac) — and opens the app in your browser. The first launch takes a few minutes while dependencies install.
 
-> **Windows note:** ffmpeg is not auto-installed on Windows. If the script warns about it missing, download from [ffmpeg.org](https://ffmpeg.org/download.html) and [add it to PATH](https://www.wikihow.com/Install-FFmpeg-on-Windows). Without ffmpeg, video downloading still works but trimming and transcription won't.
+> **Windows note:** ffmpeg is not auto-installed on Windows. If the script warns about it missing, download from [ffmpeg.org](https://ffmpeg.org/download.html) and [add it to PATH](https://www.wikihow.com/Install-FFmpeg-on-Windows). Without ffmpeg, video downloading still works but trimming, scene splitting, and transcription won't.
 
 To stop the app, close the terminal window or press `Ctrl+C`.
 
@@ -54,13 +57,53 @@ After the first install, use the quick launcher instead:
 - **Mac:** Double-click **`Digital Culture Notebook.command`**
 - **Windows:** Double-click **`Digital Culture Notebook.bat`**
 
-**Tip:** Drag this file to your Dock (Mac) or right-click and choose "Pin to Taskbar" / "Create shortcut on Desktop" (Windows) for easy access.
+**Tip:** Drag this file to your Dock (Mac) or pin to Taskbar (Windows) for easy access.
 
 ---
 
-## Advanced: Manual Setup
+## Usage
 
-If you prefer to set things up yourself:
+### Basic Workflow
+
+1. **Create a notebook** — Use the notebook dropdown; click **+** to create, **✏** to rename, **✕** to delete
+2. **Create a chapter** — Type a name in the sidebar and click **+**
+3. **Add a video entry** — Paste a video URL and click **Download & Save**
+4. **Edit notes** — Each entry has its own rich-text editor; click **Save Notes** to persist
+
+### Transcription
+
+- Click **Transcribe** on any entry to generate a transcript (appears in a dedicated section below notes)
+- Click **Transcribe All** in the toolbar to transcribe every entry in the chapter
+- Already-transcribed entries are automatically skipped
+
+### Video Trimming
+
+- Enter start/end timestamps (e.g. `00:01:00`, `00:02:30`) and click **Trim**
+- The original video is kept; a new entry is created for the trimmed clip
+
+### Scene Splitting
+
+1. Click **Split Scenes** on any entry
+2. Adjust sensitivity (lower = more scenes detected) and sample interval
+3. Click **Detect Scenes** — the app analyzes frames in-browser using perceptual hashing
+4. Preview detected scenes with thumbnails. Click a thumbnail to preview in the video player
+5. Save individual scenes, selected scenes, or all scenes at once — each becomes a new entry
+
+### Semantic Search (RAG)
+
+1. Transcribe your videos first (the index is built from transcripts)
+2. Click **Build Index** in the toolbar — this generates embeddings using `all-MiniLM-L6-v2`
+3. A search box appears. Type a query like "protest movements" or "economic impact" — results are ranked by semantic similarity
+4. **Rebuild the index** after adding or transcribing new videos
+
+### Bulk Download
+
+1. Click **Bulk Download** in the sidebar
+2. Enter a folder name and paste multiple URLs (one per line)
+3. Optionally check "Transcribe after download"
+4. Click **Download All** — progress bar tracks each download
+
+## Advanced: Manual Setup
 
 ```bash
 pip install -r requirements.txt
@@ -68,27 +111,20 @@ cd app
 uvicorn main:app --port 8080
 ```
 
-### What gets installed (requirements.txt)
+### Dependencies (requirements.txt)
 
 | Package | Purpose |
 |---------|---------|
 | **fastapi** + **uvicorn** | Web server |
 | **yt-dlp** | Video downloading (YouTube, TikTok, Instagram, Facebook, etc.) |
 | **faster-whisper** | Local speech-to-text transcription |
+| **sentence-transformers** | Semantic search index building (all-MiniLM-L6-v2) |
 | **jinja2** | HTML templating |
 | **python-multipart** | Form data handling |
 
-## Usage
-
-1. **Create a notebook** — Use the notebook dropdown at the top of the sidebar; click **+** to create, **✏** to rename, **✕** to delete
-2. **Create a chapter** — Type a name in the sidebar and click **+**
-3. **Reorder chapters** — Hover to see ▲/▼ arrows, or drag and drop
-4. **Add chapter notes** — Use the rich-text editor at the top of each chapter for general notes
-5. **Add a video entry** — Paste a video URL (YouTube, TikTok, Instagram, Facebook, etc.) and click **Download & Save**
-6. **Edit notes** — Each entry has its own rich-text editor; click **Save Notes** to persist (also saved as a .txt file alongside the video)
-7. **Transcribe** — Click **Transcribe** on an entry to generate a transcript, or **Transcribe All** in the toolbar to transcribe every entry in the chapter (skips already-transcribed ones)
-8. **Search** — Use the search bar in the sidebar to find entries by title or note content
-9. **Delete** — Remove entries with the **Delete** button, or delete entire chapters from the sidebar
+Client-side libraries (loaded via CDN, no install needed):
+- **Quill.js** — Rich text editor
+- **Transformers.js** — In-browser semantic search queries (Xenova/all-MiniLM-L6-v2)
 
 ## Supported Platforms
 
@@ -121,6 +157,7 @@ digital_culture_notebook/
         Chapter_1/
           video_title.mp4
           video_title.txt   # Notes saved alongside video
+          index.json        # Semantic search index (after building)
     notebook.db        # SQLite database (git-ignored)
 ```
 
@@ -130,3 +167,5 @@ digital_culture_notebook/
 - The database (`notebook.db`) is auto-created on first run
 - For age-restricted or login-gated videos, the downloader attempts to use cookies from your browser (Chrome, Firefox, Safari)
 - Transcription uses the `base` Whisper model by default. The model is downloaded automatically on first use (~150MB). Edit `transcriber.py` to change the model size (e.g. `small`, `medium`, `large-v3` for higher accuracy)
+- The semantic search model (`all-MiniLM-L6-v2`) is downloaded on first index build (~90MB)
+- Scene detection runs entirely in the browser — no server resources needed

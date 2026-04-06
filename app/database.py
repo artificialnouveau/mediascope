@@ -38,6 +38,7 @@ def init_db():
             video_title TEXT,
             thumbnail_path TEXT,
             notes TEXT DEFAULT '',
+            transcript TEXT DEFAULT '',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (chapter_id) REFERENCES chapters(id) ON DELETE CASCADE
         );
@@ -56,6 +57,12 @@ def init_db():
         rows = conn.execute("SELECT id FROM chapters ORDER BY created_at").fetchall()
         for i, row in enumerate(rows):
             conn.execute("UPDATE chapters SET sort_order = ? WHERE id = ?", (i, row[0]))
+
+    # Migration: add transcript column to entries
+    cursor = conn.execute("PRAGMA table_info(entries)")
+    entry_columns = [row[1] for row in cursor.fetchall()]
+    if "transcript" not in entry_columns:
+        conn.execute("ALTER TABLE entries ADD COLUMN transcript TEXT DEFAULT ''")
 
     # Ensure at least one notebook exists
     row = conn.execute("SELECT COUNT(*) as cnt FROM notebooks").fetchone()
