@@ -214,7 +214,7 @@ def delete_chapter(chapter_id: int):
 def list_entries(chapter_id: int):
     db = get_db()
     rows = db.execute(
-        "SELECT * FROM entries WHERE chapter_id = ? ORDER BY created_at",
+        "SELECT * FROM entries WHERE chapter_id = ? ORDER BY created_at DESC",
         (chapter_id,),
     ).fetchall()
     db.close()
@@ -498,7 +498,7 @@ def build_chapter_index(chapter_id: int):
         raise HTTPException(404, "Chapter not found")
     notebook = db.execute("SELECT * FROM notebooks WHERE id = ?", (chapter["notebook_id"],)).fetchone()
     entries = db.execute(
-        "SELECT * FROM entries WHERE chapter_id = ? ORDER BY created_at",
+        "SELECT * FROM entries WHERE chapter_id = ? ORDER BY created_at DESC",
         (chapter_id,),
     ).fetchall()
     db.close()
@@ -687,7 +687,7 @@ def export_chapter(chapter_id: int, request: Request):
         db.close()
         raise HTTPException(404, "Chapter not found")
     entries = db.execute(
-        "SELECT * FROM entries WHERE chapter_id = ? ORDER BY created_at",
+        "SELECT * FROM entries WHERE chapter_id = ? ORDER BY created_at DESC",
         (chapter_id,),
     ).fetchall()
     db.close()

@@ -478,6 +478,8 @@ async function addEntry() {
     progressEl.innerHTML = '<div class="download-progress-bar download-progress-pulse"><div class="download-progress-bar-fill"></div></div><div style="font-size:12px;color:#888;margin-top:4px;">Downloading and processing video...</div>';
 
     try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 600000); // 10 min timeout
         const res = await fetch(`${API}/api/entries`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -486,7 +488,9 @@ async function addEntry() {
                 url: url,
                 notes: notesInput.value,
             }),
+            signal: controller.signal,
         });
+        clearTimeout(timeout);
 
         if (!res.ok) {
             const err = await res.json();
@@ -498,7 +502,11 @@ async function addEntry() {
         notesInput.value = "";
         await loadEntries(currentChapterId);
     } catch (e) {
-        alert("Error: " + e.message);
+        if (e.name === "AbortError") {
+            alert("Download timed out (10 min). The video may still be downloading on the server — try refreshing the page in a minute.");
+        } else {
+            alert("Error: " + e.message);
+        }
     } finally {
         btn.disabled = false;
         btn.textContent = "Download & Save";
