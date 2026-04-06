@@ -1,4 +1,6 @@
 import os
+import tempfile
+import httpx
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -7,6 +9,8 @@ from pydantic import BaseModel
 from database import get_db, init_db
 from downloader import download_video, download_video_to_folder, trim_video, save_notes_file, MEDIA_DIR, _find_ffmpeg
 from transcriber import transcribe_video
+
+CLOUD_API_URL = "https://mediascope-cloud.fly.dev"
 
 app = FastAPI()
 
@@ -313,6 +317,181 @@ def delete_entry(entry_id: int):
     db.commit()
     db.close()
     return {"ok": True}
+
+
+# --- Cloud proxy endpoints ---
+
+def _extract_audio_to_tempfile(video_path: str) -> str:
+    """Extract audio from a video file to a temporary WAV file. Returns the temp file path."""
+    import subprocess
+    abs_path = os.path.join(MEDIA_DIR, video_path)
+    if not os.path.isfile(abs_path):
+        raise HTTPException(404, "Video file not found")
+    ffmpeg = _find_ffmpeg()
+    tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+    tmp.close()
+    result = subprocess.run(
+        [ffmpeg, "-y", "-i", abs_path, "-ac", "1", "-ar", "16000", "-f", "wav", tmp.name],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        os.unlink(tmp.name)
+        raise HTTPException(500, f"Audio extraction failed: {result.stderr[:500]}")
+    return tmp.name
+
+
+@app.post("/api/entries/{entry_id}/extract-audio")
+def extract_audio(entry_id: int):
+    db = get_db()
+    row = db.execute("SELECT * FROM entries WHERE id = ?", (entry_id,)).fetchone()
+    db.close()
+    if not row:
+        raise HTTPException(404, "Entry not found")
+    if not row["video_path"]:
+        raise HTTPException(400, "No video file")
+    wav_path = _extract_audio_to_tempfile(row["video_path"])
+    return FileResponse(wav_path, media_type="audio/wav", filename=f"entry_{entry_id}.wav")
+
+
+@app.post("/api/entries/{entry_id}/cloud-transcribe")
+def cloud_transcribe(entry_id: int, request: Request):
+    cloud_key = request.headers.get("X-Cloud-Key", "")
+    if not cloud_key:
+        raise HTTPException(401, "Missing cloud API key")
+
+    db = get_db()
+    row = db.execute("SELECT * FROM entries WHERE id = ?", (entry_id,)).fetchone()
+    db.close()
+    if not row:
+        raise HTTPException(404, "Entry not found")
+    if not row["video_path"]:
+        raise HTTPException(400, "No video file")
+
+    wav_path = _extract_audio_to_tempfile(row["video_path"])
+    try:
+        with open(wav_path, "rb") as f:
+            resp = httpx.post(
+                f"{CLOUD_API_URL}/api/v1/transcribe",
+                headers={"X-API-Key": cloud_key},
+                files={"file": ("audio.wav", f, "audio/wav")},
+                timeout=300.0,
+            )
+        if resp.status_code != 200:
+            raise HTTPException(resp.status_code, f"Cloud transcription failed: {resp.text[:500]}")
+        transcript = resp.json().get("transcript", resp.text)
+    finally:
+        os.unlink(wav_path)
+
+    db = get_db()
+    db.execute("UPDATE entries SET transcript = ? WHERE id = ?", (transcript, entry_id))
+    db.commit()
+    entry = db.execute("SELECT * FROM entries WHERE id = ?", (entry_id,)).fetchone()
+    db.close()
+    return dict(entry)
+
+
+@app.post("/api/entries/{entry_id}/cloud-tag")
+def cloud_tag(entry_id: int, request: Request):
+    cloud_key = request.headers.get("X-Cloud-Key", "")
+    if not cloud_key:
+        raise HTTPException(401, "Missing cloud API key")
+
+    db = get_db()
+    row = db.execute("SELECT * FROM entries WHERE id = ?", (entry_id,)).fetchone()
+    db.close()
+    if not row:
+        raise HTTPException(404, "Entry not found")
+
+    resp = httpx.post(
+        f"{CLOUD_API_URL}/api/v1/tag",
+        headers={"X-API-Key": cloud_key, "Content-Type": "application/json"},
+        json={"transcript": row["transcript"] or "", "title": row["video_title"] or ""},
+        timeout=120.0,
+    )
+    if resp.status_code != 200:
+        raise HTTPException(resp.status_code, f"Cloud tagging failed: {resp.text[:500]}")
+
+    data = resp.json()
+    summary = data.get("summary", "")
+    tags = ",".join(data.get("tags", [])) if isinstance(data.get("tags"), list) else data.get("tags", "")
+    language = data.get("language", "")
+    sentiment = data.get("sentiment", "")
+
+    db = get_db()
+    db.execute(
+        "UPDATE entries SET summary = ?, tags = ?, language = ?, sentiment = ? WHERE id = ?",
+        (summary, tags, language, sentiment, entry_id),
+    )
+    db.commit()
+    entry = db.execute("SELECT * FROM entries WHERE id = ?", (entry_id,)).fetchone()
+    db.close()
+    return dict(entry)
+
+
+@app.post("/api/entries/{entry_id}/cloud-translate")
+def cloud_translate(entry_id: int, request: Request):
+    cloud_key = request.headers.get("X-Cloud-Key", "")
+    if not cloud_key:
+        raise HTTPException(401, "Missing cloud API key")
+
+    db = get_db()
+    row = db.execute("SELECT * FROM entries WHERE id = ?", (entry_id,)).fetchone()
+    db.close()
+    if not row:
+        raise HTTPException(404, "Entry not found")
+    if not row["video_path"]:
+        raise HTTPException(400, "No video file")
+
+    wav_path = _extract_audio_to_tempfile(row["video_path"])
+    try:
+        with open(wav_path, "rb") as f:
+            resp = httpx.post(
+                f"{CLOUD_API_URL}/api/v1/translate",
+                headers={"X-API-Key": cloud_key},
+                files={"file": ("audio.wav", f, "audio/wav")},
+                timeout=300.0,
+            )
+        if resp.status_code != 200:
+            raise HTTPException(resp.status_code, f"Cloud translation failed: {resp.text[:500]}")
+        translation = resp.json().get("translation", resp.text)
+    finally:
+        os.unlink(wav_path)
+
+    existing_transcript = row["transcript"] or ""
+    updated_transcript = existing_transcript + "\n\n--- Translation (English) ---\n" + translation
+
+    db = get_db()
+    db.execute("UPDATE entries SET transcript = ? WHERE id = ?", (updated_transcript, entry_id))
+    db.commit()
+    entry = db.execute("SELECT * FROM entries WHERE id = ?", (entry_id,)).fetchone()
+    db.close()
+    return dict(entry)
+
+
+@app.post("/api/entries/{entry_id}/scrape-meta")
+def scrape_meta(entry_id: int, request: Request):
+    cloud_key = request.headers.get("X-Cloud-Key", "")
+    if not cloud_key:
+        raise HTTPException(401, "Missing cloud API key")
+
+    db = get_db()
+    row = db.execute("SELECT * FROM entries WHERE id = ?", (entry_id,)).fetchone()
+    db.close()
+    if not row:
+        raise HTTPException(404, "Entry not found")
+    if not row["source_url"]:
+        raise HTTPException(400, "No source URL for this entry")
+
+    resp = httpx.post(
+        f"{CLOUD_API_URL}/api/v1/scrape-meta",
+        headers={"X-API-Key": cloud_key, "Content-Type": "application/json"},
+        json={"url": row["source_url"]},
+        timeout=120.0,
+    )
+    if resp.status_code != 200:
+        raise HTTPException(resp.status_code, f"Scraping failed: {resp.text[:500]}")
+
+    return resp.json()
 
 
 # --- Bulk Download ---

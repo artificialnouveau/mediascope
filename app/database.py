@@ -39,6 +39,10 @@ def init_db():
             thumbnail_path TEXT,
             notes TEXT DEFAULT '',
             transcript TEXT DEFAULT '',
+            summary TEXT DEFAULT '',
+            tags TEXT DEFAULT '',
+            language TEXT DEFAULT '',
+            sentiment TEXT DEFAULT '',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (chapter_id) REFERENCES chapters(id) ON DELETE CASCADE
         );
@@ -63,6 +67,14 @@ def init_db():
     entry_columns = [row[1] for row in cursor.fetchall()]
     if "transcript" not in entry_columns:
         conn.execute("ALTER TABLE entries ADD COLUMN transcript TEXT DEFAULT ''")
+    if "summary" not in entry_columns:
+        conn.execute("ALTER TABLE entries ADD COLUMN summary TEXT DEFAULT ''")
+    if "tags" not in entry_columns:
+        conn.execute("ALTER TABLE entries ADD COLUMN tags TEXT DEFAULT ''")
+    if "language" not in entry_columns:
+        conn.execute("ALTER TABLE entries ADD COLUMN language TEXT DEFAULT ''")
+    if "sentiment" not in entry_columns:
+        conn.execute("ALTER TABLE entries ADD COLUMN sentiment TEXT DEFAULT ''")
 
     # Ensure at least one notebook exists
     row = conn.execute("SELECT COUNT(*) as cnt FROM notebooks").fetchone()

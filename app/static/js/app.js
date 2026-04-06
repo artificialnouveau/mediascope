@@ -337,12 +337,25 @@ function createEntryCard(entry) {
                     ${entry.video_path ? `<button class="btn btn-secondary" onclick="openSceneSplitter(${entry.id}, '${entry.video_path}')">Split Scenes</button>` : ""}
                     <button class="btn btn-danger" onclick="deleteEntry(${entry.id})">Delete</button>
                 </div>
+                ${cloudApiKey ? `<div class="entry-actions" style="margin-top:6px;">
+                    <button class="btn btn-secondary" onclick="cloudTranscribe(${entry.id})">Cloud Transcribe</button>
+                    <button class="btn btn-secondary" onclick="cloudTag(${entry.id})">Auto-Tag</button>
+                    <button class="btn btn-secondary" onclick="cloudTranslate(${entry.id})">Translate</button>
+                    ${entry.source_url ? `<button class="btn btn-secondary" onclick="scrapeMetadata(${entry.id})">Scrape Comments</button>` : ""}
+                </div>` : ""}
                 <div class="transcript-section" id="transcript-section-${entry.id}" style="${entry.transcript ? '' : 'display:none;'}">
                     <div class="transcript-header" style="display:flex;align-items:center;justify-content:space-between;margin-top:12px;padding:6px 0;border-top:1px solid #e0e0e0;">
                         <strong style="font-size:13px;color:#555;">Transcription</strong>
                         <button class="btn btn-secondary" style="font-size:11px;padding:2px 8px;" onclick="toggleTranscript(${entry.id})">Show/Hide</button>
                     </div>
                     <div class="transcript-body" id="transcript-body-${entry.id}" style="font-size:13px;color:#444;line-height:1.5;padding:8px;background:#f9f9f9;border-radius:4px;max-height:300px;overflow-y:auto;white-space:pre-wrap;">${escapeHtml(entry.transcript || "")}</div>
+                </div>
+                <div class="tags-section" id="tags-section-${entry.id}" style="${entry.tags ? '' : 'display:none;'}">
+                    <div style="margin-top:8px;padding:6px 0;border-top:1px solid #e0e0e0;">
+                        ${entry.summary ? `<div style="font-size:12px;color:#555;margin-bottom:4px;">${escapeHtml(entry.summary)}</div>` : ""}
+                        ${entry.tags ? `<div style="display:flex;gap:4px;flex-wrap:wrap;">${entry.tags.split(',').map(t => `<span style="background:#f0ecff;color:#7c3aed;padding:2px 8px;border-radius:12px;font-size:11px;">${escapeHtml(t.trim())}</span>`).join('')}</div>` : ""}
+                        ${entry.language ? `<div style="font-size:11px;color:#999;margin-top:4px;">Language: ${escapeHtml(entry.language)} | Sentiment: ${escapeHtml(entry.sentiment || 'unknown')}</div>` : ""}
+                    </div>
                 </div>
             </div>
         </div>
@@ -1709,6 +1722,150 @@ function updateCloudStatus(data) {
 
 function hasCloudFeature(feature) {
     return cloudApiKey && cloudFeatures && cloudFeatures[feature];
+}
+
+// --- Cloud feature functions ---
+
+async function cloudTranscribe(entryId) {
+    const btn = event.target;
+    btn.disabled = true;
+    btn.innerHTML = 'Transcribing (cloud)...<span class="loading"></span>';
+    try {
+        const res = await fetch(`${API}/api/entries/${entryId}/cloud-transcribe`, {
+            method: "POST",
+            headers: { "X-Cloud-Key": cloudApiKey },
+        });
+        if (!res.ok) {
+            const err = await res.json();
+            showToast(err.detail || "Cloud transcription failed", "error");
+            return;
+        }
+        const entry = await res.json();
+        const section = document.getElementById(`transcript-section-${entryId}`);
+        const body = document.getElementById(`transcript-body-${entryId}`);
+        if (section && body) {
+            body.textContent = entry.transcript || "";
+            section.style.display = "";
+        }
+        showToast("Cloud transcription complete", "success");
+    } catch (e) {
+        showToast("Error: " + e.message, "error");
+    } finally {
+        btn.disabled = false;
+        btn.textContent = "Cloud Transcribe";
+    }
+}
+
+async function cloudTag(entryId) {
+    const btn = event.target;
+    btn.disabled = true;
+    btn.innerHTML = 'Tagging...<span class="loading"></span>';
+    try {
+        const res = await fetch(`${API}/api/entries/${entryId}/cloud-tag`, {
+            method: "POST",
+            headers: { "X-Cloud-Key": cloudApiKey },
+        });
+        if (!res.ok) {
+            const err = await res.json();
+            showToast(err.detail || "Auto-tagging failed", "error");
+            return;
+        }
+        const entry = await res.json();
+        // Refresh entries to show tags
+        if (currentChapterId) await loadEntries(currentChapterId);
+        showToast("Auto-tagging complete", "success");
+    } catch (e) {
+        showToast("Error: " + e.message, "error");
+    } finally {
+        btn.disabled = false;
+        btn.textContent = "Auto-Tag";
+    }
+}
+
+async function cloudTranslate(entryId) {
+    const btn = event.target;
+    btn.disabled = true;
+    btn.innerHTML = 'Translating...<span class="loading"></span>';
+    try {
+        const res = await fetch(`${API}/api/entries/${entryId}/cloud-translate`, {
+            method: "POST",
+            headers: { "X-Cloud-Key": cloudApiKey },
+        });
+        if (!res.ok) {
+            const err = await res.json();
+            showToast(err.detail || "Translation failed", "error");
+            return;
+        }
+        const entry = await res.json();
+        const section = document.getElementById(`transcript-section-${entryId}`);
+        const body = document.getElementById(`transcript-body-${entryId}`);
+        if (section && body) {
+            body.textContent = entry.transcript || "";
+            section.style.display = "";
+        }
+        showToast("Translation complete", "success");
+    } catch (e) {
+        showToast("Error: " + e.message, "error");
+    } finally {
+        btn.disabled = false;
+        btn.textContent = "Translate";
+    }
+}
+
+async function scrapeMetadata(entryId) {
+    const btn = event.target;
+    btn.disabled = true;
+    btn.innerHTML = 'Scraping...<span class="loading"></span>';
+    try {
+        const res = await fetch(`${API}/api/entries/${entryId}/scrape-meta`, {
+            method: "POST",
+            headers: { "X-Cloud-Key": cloudApiKey },
+        });
+        if (!res.ok) {
+            const err = await res.json();
+            showToast(err.detail || "Scraping failed", "error");
+            return;
+        }
+        const data = await res.json();
+        // Show metadata in a modal or section
+        let html = '<div style="max-height:400px;overflow-y:auto;font-size:13px;">';
+        if (data.view_count != null) html += `<div><strong>Views:</strong> ${data.view_count.toLocaleString()}</div>`;
+        if (data.like_count != null) html += `<div><strong>Likes:</strong> ${data.like_count.toLocaleString()}</div>`;
+        if (data.comment_count != null) html += `<div><strong>Comments:</strong> ${data.comment_count.toLocaleString()}</div>`;
+        if (data.upload_date) html += `<div><strong>Uploaded:</strong> ${data.upload_date}</div>`;
+        if (data.channel) html += `<div><strong>Channel:</strong> ${escapeHtml(data.channel)}</div>`;
+        if (data.tags && data.tags.length) html += `<div><strong>Tags:</strong> ${data.tags.map(t => escapeHtml(t)).join(', ')}</div>`;
+        if (data.description) html += `<div style="margin-top:8px;"><strong>Description:</strong><br>${escapeHtml(data.description.substring(0, 500))}</div>`;
+        if (data.comments && data.comments.length) {
+            html += '<div style="margin-top:8px;"><strong>Top Comments:</strong></div>';
+            data.comments.slice(0, 20).forEach(c => {
+                html += `<div style="padding:6px;margin-top:4px;background:#f9f9f9;border-radius:4px;"><strong>${escapeHtml(c.author)}</strong> ${c.likes ? '('+c.likes+' likes)' : ''}<br>${escapeHtml(c.text)}</div>`;
+            });
+        }
+        html += '</div>';
+
+        // Show in a modal
+        const existing = document.getElementById("scrape-modal");
+        if (existing) existing.remove();
+        const modal = document.createElement("div");
+        modal.id = "scrape-modal";
+        modal.innerHTML = `
+            <div class="scene-modal-backdrop" onclick="document.getElementById('scrape-modal').remove()"></div>
+            <div class="scene-modal-content">
+                <div class="scene-modal-header">
+                    <h3>Video Metadata & Comments</h3>
+                    <button onclick="document.getElementById('scrape-modal').remove()" style="background:none;border:none;font-size:20px;cursor:pointer;color:#666;">&times;</button>
+                </div>
+                <div class="scene-modal-body">${html}</div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+    } catch (e) {
+        showToast("Error: " + e.message, "error");
+    } finally {
+        btn.disabled = false;
+        btn.textContent = "Scrape Comments";
+    }
 }
 
 // --- Init ---

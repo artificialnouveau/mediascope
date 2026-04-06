@@ -7,3 +7,4 @@ faster-whisper
 sentence-transformers
 resemblyzer
 scikit-learn
+httpx
