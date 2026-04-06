@@ -55,7 +55,7 @@
         <div id="toolbar">
             <h2 id="chapter-title"></h2>
             <div class="toolbar-actions">
-                <button class="btn btn-secondary" id="build-index-btn" onclick="buildChapterIndex()" title="Build a semantic search index from transcripts. Rebuild after adding new videos.">Build Index</button>
+                <button class="btn btn-secondary" id="build-index-btn" onclick="buildChapterIndex()" title="Build a semantic search index from transcripts. Rebuild after adding new videos.">Build Index for RAG</button>
                 <button class="btn btn-secondary" id="transcribe-all-btn" onclick="transcribeAll()">Transcribe All</button>
             </div>
         </div>
@@ -132,7 +132,7 @@
                 <h3 id="bulk-folder-title" style="margin-bottom:12px; font-size:15px;"></h3>
                 <div style="margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap;">
                     <button class="btn btn-secondary" onclick="transcribeAllBulk()">Transcribe All</button>
-                    <button class="btn btn-secondary" id="bulk-build-index-btn" onclick="buildBulkIndex()">Build Index</button>
+                    <button class="btn btn-secondary" id="bulk-build-index-btn" onclick="buildBulkIndex()">Build Index for RAG</button>
                 </div>
                 <!-- Bulk RAG Search -->
                 <div id="bulk-rag-section" style="display:none;background:#f9f9f9;border-radius:8px;padding:14px;margin-bottom:12px;">

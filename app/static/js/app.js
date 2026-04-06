@@ -299,18 +299,20 @@ function createEntryCard(entry) {
                     <h4>${escapeHtml(entry.video_title || "Untitled")}</h4>
                 </div>
                 ${entry.source_url ? `<div class="entry-source">${escapeHtml(entry.source_url)}</div>` : ""}
-                ${entry.video_path ? `<div class="trim-row" style="margin-bottom:8px;">
-                    <label style="font-size:12px;color:#666;">Start:</label>
-                    <input type="text" id="entry-trim-start-${entry.id}" placeholder="00:00:00" style="width:100px;padding:4px 6px;border:1px solid #ddd;border-radius:4px;font-size:12px;font-family:monospace;">
-                    <label style="font-size:12px;color:#666;">End:</label>
-                    <input type="text" id="entry-trim-end-${entry.id}" placeholder="00:01:30" style="width:100px;padding:4px 6px;border:1px solid #ddd;border-radius:4px;font-size:12px;font-family:monospace;">
-                    <button class="btn btn-secondary" onclick="trimEntryVideo(${entry.id}, '${entry.video_path}')">Trim</button>
-                    <button class="btn btn-secondary" onclick="openSceneSplitter(${entry.id}, '${entry.video_path}')">Split Scenes</button>
+                ${entry.video_path ? `<div style="margin-bottom:8px;">
+                    <div class="trim-row" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:6px;">
+                        <label style="font-size:12px;color:#666;">Start:</label>
+                        <input type="text" id="entry-trim-start-${entry.id}" placeholder="00:00:00" style="width:100px;padding:4px 6px;border:1px solid #ddd;border-radius:4px;font-size:12px;font-family:monospace;">
+                        <label style="font-size:12px;color:#666;">End:</label>
+                        <input type="text" id="entry-trim-end-${entry.id}" placeholder="00:01:30" style="width:100px;padding:4px 6px;border:1px solid #ddd;border-radius:4px;font-size:12px;font-family:monospace;">
+                        <button class="btn btn-secondary" onclick="trimEntryVideo(${entry.id}, '${entry.video_path}')">Trim</button>
+                    </div>
                 </div>` : ""}
                 <div id="${editorId}">${entry.notes || ""}</div>
                 <div class="entry-actions">
                     <button class="btn btn-primary" onclick="saveNotes(${entry.id})">Save Notes</button>
                     <button class="btn btn-secondary" id="transcribe-btn-${entry.id}" onclick="transcribeEntry(${entry.id})">Transcribe</button>
+                    ${entry.video_path ? `<button class="btn btn-secondary" onclick="openSceneSplitter(${entry.id}, '${entry.video_path}')">Split Scenes</button>` : ""}
                     <button class="btn btn-danger" onclick="deleteEntry(${entry.id})">Delete</button>
                 </div>
                 <div class="transcript-section" id="transcript-section-${entry.id}" style="${entry.transcript ? '' : 'display:none;'}">
@@ -925,10 +927,19 @@ function formatTime(seconds) {
     return h > 0 ? `${h}:${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}` : `${m}:${String(s).padStart(2,"0")}`;
 }
 
-function openSceneSplitter(entryId, videoPath) {
+async function openSceneSplitter(entryId, videoPath) {
     // Remove existing modal if any
     const existing = document.getElementById("scene-modal");
     if (existing) existing.remove();
+
+    // Fetch entry transcript for scene annotations
+    let transcript = "";
+    try {
+        const res = await fetch(`${API}/api/chapters/${currentChapterId}/entries`);
+        const entries = await res.json();
+        const entry = entries.find(e => e.id === entryId);
+        if (entry && entry.transcript) transcript = entry.transcript;
+    } catch (e) { /* ignore */ }
 
     const modal = document.createElement("div");
     modal.id = "scene-modal";
@@ -970,6 +981,7 @@ function openSceneSplitter(entryId, videoPath) {
         </div>
     `;
     document.body.appendChild(modal);
+    window._sceneTranscript = transcript;
 
     document.getElementById("scene-sensitivity").addEventListener("input", e => {
         document.getElementById("scene-sensitivity-val").textContent = e.target.value;
@@ -1059,18 +1071,34 @@ async function runSceneDetection(videoPath, entryId) {
         return;
     }
 
+    // Approximate transcript segments per scene (proportional split by time)
+    const transcript = window._sceneTranscript || "";
+    const words = transcript ? transcript.split(/\s+/) : [];
+
+    function getSceneTranscript(sceneStart, sceneEnd) {
+        if (!words.length || !duration) return "";
+        const startPct = sceneStart / duration;
+        const endPct = sceneEnd / duration;
+        const startWord = Math.floor(startPct * words.length);
+        const endWord = Math.min(Math.ceil(endPct * words.length), words.length);
+        const excerpt = words.slice(startWord, endWord).join(" ");
+        return excerpt.length > 200 ? excerpt.substring(0, 200) + "..." : excerpt;
+    }
+
     let html = `<p style="margin-bottom:12px;font-size:13px;"><strong>${scenes.length} scenes detected.</strong> Select which scenes to save:</p>`;
     html += '<div style="max-height:400px;overflow-y:auto;">';
     scenes.forEach((s, i) => {
+        const sceneText = getSceneTranscript(s.start, s.end);
         html += `
-            <div style="display:flex;align-items:center;gap:10px;padding:8px;border-bottom:1px solid #f0f0f0;">
-                <input type="checkbox" class="scene-check" data-index="${i}">
+            <div style="display:flex;align-items:flex-start;gap:10px;padding:8px;border-bottom:1px solid #f0f0f0;">
+                <input type="checkbox" class="scene-check" data-index="${i}" style="margin-top:4px;">
                 <img src="${s.thumbnail}" style="width:120px;height:auto;border-radius:4px;flex-shrink:0;cursor:pointer;" onclick="document.getElementById('scene-video').currentTime=${s.start}">
-                <div style="flex:1;">
+                <div style="flex:1;min-width:0;">
                     <strong style="font-size:13px;">Scene ${i + 1}</strong><br>
                     <span style="font-size:12px;color:#666;">${formatTime(s.start)} \u2013 ${formatTime(s.end)} (${formatTime(s.end - s.start)})</span>
+                    ${sceneText ? `<div style="font-size:11px;color:#888;margin-top:4px;line-height:1.4;max-height:40px;overflow:hidden;">${escapeHtml(sceneText)}</div>` : ""}
                 </div>
-                <button class="btn btn-secondary" style="font-size:11px;padding:4px 10px;" onclick="saveSingleScene(${entryId}, '${videoPath}', ${i})">Save</button>
+                <button class="btn btn-secondary" style="font-size:11px;padding:4px 10px;flex-shrink:0;" onclick="saveSingleScene(${entryId}, '${videoPath}', ${i})">Save</button>
             </div>`;
     });
     html += '</div>';
@@ -1166,24 +1194,47 @@ async function buildChapterIndex() {
     if (!currentChapterId) return;
     const btn = document.getElementById("build-index-btn");
     btn.disabled = true;
-    btn.innerHTML = 'Building index...<span class="loading"></span>';
+    btn.innerHTML = 'Building...<span class="loading"></span>';
+
+    // Show progress in the RAG search section area
+    const ragSection = document.getElementById("rag-search-section");
+    ragSection.style.display = "block";
+    const resultsEl = document.getElementById("rag-search-results");
+    const statusEl = document.getElementById("rag-search-status");
+    resultsEl.innerHTML = `
+        <div class="download-progress-bar download-progress-pulse" style="margin-bottom:8px;">
+            <div class="download-progress-bar-fill"></div>
+        </div>
+        <div style="font-size:13px;color:#555;">Building search index from transcripts...<br>
+        <span style="font-size:11px;color:#999;">First run downloads the embedding model (~90MB) and may take a few minutes.</span></div>
+    `;
+    statusEl.textContent = "";
+
     try {
-        const res = await fetch(`${API}/api/chapters/${currentChapterId}/build-index`, { method: "POST" });
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 600000);
+        const res = await fetch(`${API}/api/chapters/${currentChapterId}/build-index`, {
+            method: "POST",
+            signal: controller.signal,
+        });
+        clearTimeout(timeout);
         if (!res.ok) {
             const err = await res.json();
-            alert("Index build failed: " + (err.detail || "Error"));
+            resultsEl.innerHTML = `<div style="color:#ef4444;font-size:13px;">${escapeHtml(err.detail || "Index build failed.")}</div>`;
             return;
         }
         const data = await res.json();
-        alert(`Index built! ${data.videos} videos, ${data.chunks} text chunks indexed.`);
-        document.getElementById("rag-search-section").style.display = "block";
-        // Pre-load the index
+        resultsEl.innerHTML = `<div style="color:#16a34a;font-size:13px;">Index built! ${data.videos} videos, ${data.chunks} text chunks indexed. You can now search above.</div>`;
         await loadChapterRagIndex();
     } catch (e) {
-        alert("Error: " + e.message);
+        if (e.name === "AbortError") {
+            resultsEl.innerHTML = '<div style="color:#d97706;font-size:13px;">Index build timed out. Try again — the model is now cached and should be faster.</div>';
+        } else {
+            resultsEl.innerHTML = `<div style="color:#ef4444;font-size:13px;">Error: ${escapeHtml(e.message)}</div>`;
+        }
     } finally {
         btn.disabled = false;
-        btn.textContent = "Build Index";
+        btn.textContent = "Build Index for RAG";
     }
 }
 
@@ -1256,23 +1307,46 @@ async function buildBulkIndex() {
     if (!currentBulkFolder) return;
     const btn = document.getElementById("bulk-build-index-btn");
     btn.disabled = true;
-    btn.innerHTML = 'Building index...<span class="loading"></span>';
+    btn.innerHTML = 'Building...<span class="loading"></span>';
+
+    const ragSection = document.getElementById("bulk-rag-section");
+    ragSection.style.display = "block";
+    const resultsEl = document.getElementById("bulk-rag-results");
+    const statusEl = document.getElementById("bulk-rag-status");
+    resultsEl.innerHTML = `
+        <div class="download-progress-bar download-progress-pulse" style="margin-bottom:8px;">
+            <div class="download-progress-bar-fill"></div>
+        </div>
+        <div style="font-size:13px;color:#555;">Building search index from transcripts...<br>
+        <span style="font-size:11px;color:#999;">First run downloads the embedding model (~90MB) and may take a few minutes.</span></div>
+    `;
+    statusEl.textContent = "";
+
     try {
-        const res = await fetch(`${API}/api/bulk/folders/${encodeURIComponent(currentBulkFolder)}/build-index`, { method: "POST" });
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 600000);
+        const res = await fetch(`${API}/api/bulk/folders/${encodeURIComponent(currentBulkFolder)}/build-index`, {
+            method: "POST",
+            signal: controller.signal,
+        });
+        clearTimeout(timeout);
         if (!res.ok) {
             const err = await res.json();
-            alert("Index build failed: " + (err.detail || "Error"));
+            resultsEl.innerHTML = `<div style="color:#ef4444;font-size:13px;">${escapeHtml(err.detail || "Index build failed.")}</div>`;
             return;
         }
         const data = await res.json();
-        alert(`Index built! ${data.videos} videos, ${data.chunks} text chunks indexed.`);
-        document.getElementById("bulk-rag-section").style.display = "block";
+        resultsEl.innerHTML = `<div style="color:#16a34a;font-size:13px;">Index built! ${data.videos} videos, ${data.chunks} text chunks indexed. You can now search above.</div>`;
         await loadBulkRagIndex();
     } catch (e) {
-        alert("Error: " + e.message);
+        if (e.name === "AbortError") {
+            resultsEl.innerHTML = '<div style="color:#d97706;font-size:13px;">Index build timed out. Try again — the model is now cached and should be faster.</div>';
+        } else {
+            resultsEl.innerHTML = `<div style="color:#ef4444;font-size:13px;">Error: ${escapeHtml(e.message)}</div>`;
+        }
     } finally {
         btn.disabled = false;
-        btn.textContent = "Build Index";
+        btn.textContent = "Build Index for RAG";
     }
 }
 
