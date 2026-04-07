@@ -1,5 +1,5 @@
 @echo off
-REM MediaScope — Quick Launch
+REM ClipStudio — Quick Launch
 REM Double-click this file to start the app
 
 cd /d "%~dp0"
@@ -16,7 +16,7 @@ REM Activate virtual environment
 call .venv\Scripts\activate.bat
 
 echo ========================================
-echo   Starting MediaScope...
+echo   Starting ClipStudio...
 echo   Closing this window will stop the app.
 echo ========================================
 echo.

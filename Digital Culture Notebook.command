@@ -1,5 +1,5 @@
 #!/bin/bash
-# MediaScope — Quick Launch
+# ClipStudio — Quick Launch
 # Double-click this file to start the app
 
 cd "$(dirname "$0")"
@@ -18,7 +18,7 @@ fi
 lsof -ti:8080 | xargs kill -9 2>/dev/null || true
 
 echo "========================================"
-echo "  Starting MediaScope..."
+echo "  Starting ClipStudio..."
 echo "  Closing this window will stop the app."
 echo "========================================"
 echo ""

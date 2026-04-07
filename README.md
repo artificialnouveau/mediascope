@@ -1,4 +1,4 @@
-# MediaScope
+# ClipStudio
 
 A personal media notebook web app for saving videos with rich-text notes — like Evernote, but for videos. Supports downloading from YouTube, TikTok, Instagram, Facebook, and other platforms via yt-dlp.
 
@@ -24,11 +24,13 @@ A personal media notebook web app for saving videos with rich-text notes — lik
 
 ### Step 2: Download & Run
 
-1. [**Download ZIP**](https://github.com/artificialnouveau/mediascope/archive/refs/heads/main.zip) and unzip it
+1. [**Download ZIP**](https://github.com/artificialnouveau/clipstudio/archive/refs/heads/main.zip) and unzip it
 2. **Mac:** Double-click **`install_and_run.command`**
 3. **Windows:** Double-click **`install_and_run.bat`**
 
 The script installs everything (including Homebrew + ffmpeg on Mac) and opens the app. First launch takes a few minutes.
+
+> **Mac: Terminal will ask for your password.** The installer needs your Mac login password (typed, not visible) to install Homebrew and ffmpeg. This is normal — it uses `sudo` for system-level installs. You only need to do this on the first run.
 
 > **Mac: "Cannot verify" warning?** macOS may block the file the first time. To fix:
 > 1. Click **Done** (not Move to Trash)
@@ -38,7 +40,7 @@ The script installs everything (including Homebrew + ffmpeg on Mac) and opens th
 >
 > Alternatively, right-click the file and choose **Open** instead of double-clicking. You only need to do this once.
 
-After first install, use **`MediaScope.command`** (Mac) or **`.bat`** (Windows) for quick launch.
+After first install, use **`ClipStudio.command`** (Mac) or **`.bat`** (Windows) for quick launch.
 
 ---
 

@@ -1,9 +1,9 @@
 #!/bin/bash
-# MediaScope — Install & Run (macOS / Linux)
+# ClipStudio — Install & Run (macOS / Linux)
 set -e
 
 echo "========================================"
-echo "  MediaScope — Setup"
+echo "  ClipStudio — Setup"
 echo "========================================"
 echo ""
 
@@ -85,7 +85,7 @@ lsof -ti:8080 | xargs kill -9 2>/dev/null || true
 
 echo ""
 echo "========================================"
-echo "  Starting MediaScope"
+echo "  Starting ClipStudio"
 echo "  Open http://localhost:8080 in your browser"
 echo "  Press Ctrl+C to stop"
 echo "========================================"

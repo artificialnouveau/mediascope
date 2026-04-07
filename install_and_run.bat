@@ -1,8 +1,8 @@
 @echo off
-REM MediaScope — Install & Run (Windows)
+REM ClipStudio — Install & Run (Windows)
 
 echo ========================================
-echo   MediaScope — Setup
+echo   ClipStudio — Setup
 echo ========================================
 echo.
 
@@ -53,7 +53,7 @@ pip install -r requirements.txt -q
 
 echo.
 echo ========================================
-echo   Starting MediaScope
+echo   Starting ClipStudio
 echo   Opening browser...
 echo   Press Ctrl+C to stop
 echo ========================================
