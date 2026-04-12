@@ -271,17 +271,28 @@ async function loadChapterNotes(chapterId) {
 }
 
 async function saveChapterNotes() {
-    if (!chapterNotesQuill || !currentChapterId) return;
+    if (!chapterNotesQuill || !currentChapterId) {
+        showToast("No chapter selected or editor not ready.", "error");
+        return;
+    }
+    const statusEl = document.getElementById("chapter-notes-status");
     const notes = chapterNotesQuill.root.innerHTML;
-    await fetch(`${API}/api/chapters/${currentChapterId}/notes`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ notes }),
-    });
-    document.getElementById("chapter-notes-status").textContent = "Saved!";
-    setTimeout(() => {
-        document.getElementById("chapter-notes-status").textContent = "";
-    }, 2000);
+    try {
+        const res = await fetch(`${API}/api/chapters/${currentChapterId}/notes`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ notes }),
+        });
+        if (!res.ok) {
+            const text = await res.text();
+            throw new Error(`${res.status}: ${text}`);
+        }
+        statusEl.textContent = "Saved!";
+        setTimeout(() => { statusEl.textContent = ""; }, 2000);
+    } catch (e) {
+        statusEl.textContent = "Save failed";
+        showToast("Failed to save chapter notes: " + e.message, "error");
+    }
 }
 
 // --- Entry management ---
@@ -320,6 +331,7 @@ function createEntryCard(entry) {
                     <h4>${escapeHtml(entry.video_title || "Untitled")}</h4>
                 </div>
                 ${entry.source_url ? `<div class="entry-source">${escapeHtml(entry.source_url)}</div>` : ""}
+                ${entry.video_path ? `<div class="entry-filepath" style="font-size:11px;color:#999;word-break:break-all;font-family:monospace;margin-bottom:6px;">${escapeHtml(entry.video_path)}</div>` : ""}
                 ${entry.video_path ? `<div style="margin-bottom:8px;">
                     <div class="trim-row" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:6px;">
                         <label style="font-size:12px;color:#666;">Start:</label>
@@ -575,13 +587,25 @@ async function addEntry() {
 
 async function saveNotes(entryId) {
     const quill = quillEditors[entryId];
-    if (!quill) return;
+    if (!quill) {
+        showToast("Editor not ready. Try again.", "error");
+        return;
+    }
     const notes = quill.root.innerHTML;
-    await fetch(`${API}/api/entries/${entryId}/notes`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ notes }),
-    });
+    try {
+        const res = await fetch(`${API}/api/entries/${entryId}/notes`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ notes }),
+        });
+        if (!res.ok) {
+            const text = await res.text();
+            throw new Error(`${res.status}: ${text}`);
+        }
+        showToast("Notes saved", "success");
+    } catch (e) {
+        showToast("Failed to save notes: " + e.message, "error");
+    }
 }
 
 async function deleteEntry(entryId) {

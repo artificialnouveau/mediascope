@@ -17,6 +17,45 @@ def sanitize_name(name: str) -> str:
     return name
 
 
+def build_filename(info: dict) -> str:
+    """Construct a human-readable filename from yt-dlp info.
+
+    Prefers a real title, but on platforms where the title is just the video id
+    (common with Instagram, some TikTok posts, etc.) falls back to the first
+    line of the description, then the uploader+id, then the id. Always prepends
+    the uploader when it isn't already part of the title, so filenames stay
+    distinguishable across creators.
+    """
+    title = (info.get("title") or "").strip()
+    video_id = (info.get("id") or "").strip()
+    uploader = (
+        info.get("uploader")
+        or info.get("channel")
+        or info.get("uploader_id")
+        or ""
+    ).strip()
+    description = (info.get("description") or "").strip()
+
+    # If the title is empty or is literally the video id, it's not useful.
+    if not title or title == video_id:
+        if description:
+            title = description.split("\n", 1)[0][:MAX_FILENAME_LENGTH]
+        else:
+            title = ""
+
+    # Still nothing? fall back to the id.
+    if not title:
+        title = video_id or "untitled"
+
+    # Prepend uploader when it's not already reflected in the title.
+    if uploader and uploader.lower() not in title.lower():
+        name = f"{uploader}_{title}"
+    else:
+        name = title
+
+    return sanitize_name(name)
+
+
 def download_video(url: str, notebook_name: str, chapter_name: str) -> dict:
     """Download a video into media/notebook/chapter/ with sanitized filenames."""
     nb_folder = sanitize_name(notebook_name)
@@ -54,7 +93,7 @@ def download_video(url: str, notebook_name: str, chapter_name: str) -> dict:
         raise last_error
 
     title = info.get("title", "Untitled")
-    safe_title = sanitize_name(title)
+    safe_title = build_filename(info)
 
     # Deduplicate filenames
     final_name = safe_title
@@ -149,7 +188,7 @@ def download_video_to_folder(url: str, folder_name: str) -> dict:
         raise last_error
 
     title = info.get("title", "Untitled")
-    safe_title = sanitize_name(title)
+    safe_title = build_filename(info)
 
     final_name = safe_title
     counter = 1
