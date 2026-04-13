@@ -5,6 +5,7 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from typing import Optional
 from pydantic import BaseModel
 from database import get_db, init_db
 from downloader import download_video, download_video_to_folder, trim_video, save_notes_file, MEDIA_DIR, _find_ffmpeg
@@ -55,7 +56,7 @@ class TrimRequest(BaseModel):
     video_path: str
     start: str = ""
     end: str = ""
-    entry_id: int | None = None
+    entry_id: Optional[int] = None
 
 class SceneRange(BaseModel):
     start: str

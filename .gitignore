@@ -4,6 +4,7 @@ app/media/
 
 # Database
 app/notebook.db
+app/notebook.db.bak*
 
 # Python
 __pycache__/
